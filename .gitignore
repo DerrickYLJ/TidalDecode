@@ -161,6 +161,7 @@ cython_debug/
 
 
 # Output files
+figures/
 output/
 *.out
 attn_plot/

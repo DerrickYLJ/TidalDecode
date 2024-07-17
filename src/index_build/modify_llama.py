@@ -27,7 +27,6 @@ class KeyValueIndexStore:
             faiss.IndexFlatL2(dimension) for _ in range(num_kv_heads)  # on CPU
         ]
         self.top_k = top_k
-        self.past_kv = None
         self.past_key_value = prefilling
     
     def update_kv_cache(self, key_states, value_states):
@@ -165,16 +164,9 @@ def llama_index_build_attention_forward(
         key_states, value_states = self.kv_index_store.search_index_store(
             query_states.to("cpu")
         )
-        # print(key_states.size(), value_states.size())
-        # print(f"top_k key_states: {key_states};\nvalue_states: {value_states}")
-        # exit()
         key_states = key_states.to(hidden_states.device)
         value_states = value_states.to(hidden_states.device)
     else:
-        # if q_len == 1:
-        #     print(key_states.size(), value_states.size())
-        #     print(f"normal key_states: {key_states};\nvalue_states: {value_states}")
-        #     exit()
         key_states, value_states = key_states.to(hidden_states.device), value_states.to(hidden_states.device)
         key_states = repeat_kv(key_states, self.num_key_value_groups)
         value_states = repeat_kv(value_states, self.num_key_value_groups)

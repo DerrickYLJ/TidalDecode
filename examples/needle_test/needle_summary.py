@@ -33,8 +33,12 @@ if __name__ == "__main__":
     args = argparse.ArgumentParser()
     args.add_argument("--run_name", type=str, default=None)
     args.add_argument("--output_path", type=str, default="results/needle/")
+    args.add_argument("--max_length", type=int, default=100000)
+    args.add_argument("--min_length", type=int, default=1000)
+    args.add_argument("--top_k", type=int, default=None)
     args = args.parse_args()
-
+    args.output_path = os.path.join(args.output_path, str(args.top_k), f"{args.min_length//1000}K_{args.max_length//1000}K")
+    
     summary(
         run_name=args.run_name,
         output_path=args.output_path,

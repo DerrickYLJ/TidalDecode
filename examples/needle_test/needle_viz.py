@@ -24,6 +24,7 @@ logging.getLogger("matplotlib.font_manager").setLevel(logging.ERROR)
 def plot_needle_viz(
     res_file,
     model_name,
+    args,
     min_context=1000,
     max_context=8000,
     mode="ours",
@@ -137,7 +138,7 @@ def plot_needle_viz(
     # Save and Show the plot
     save_path = os.path.join(
         output_path,
-        f"needle_viz_{model_name}_{mode}_{min_context_str}_{max_context_str}.pdf",
+        f"needle_viz_{model_name}_{mode}_{min_context_str}_{max_context_str}_{args.top_k}.pdf",
     )
     plt.savefig(save_path, dpi=1000)
     print(f"Needle plot saved to {save_path}.")
@@ -149,10 +150,16 @@ if __name__ == "__main__":
     args.add_argument("--res_file", type=str, required=True)
     args.add_argument("--model_name", type=str, required=True)
     args.add_argument("--mode", type=str)
+    args.add_argument("--max_length", type=int, default=100000)
+    args.add_argument("--min_length", type=int, default=1000)
+    args.add_argument("--top_k", type=int, default=None)
     args = args.parse_args()
+    args.res_file = os.path.join(args.res_file, str(args.top_k), f"{args.min_length//1000}K_{args.max_length//1000}K", "Index_s.json")
 
     plot_needle_viz(
         args.res_file,
+        args = args,
         model_name=args.model_name,
         mode=args.mode,
+        
     )
