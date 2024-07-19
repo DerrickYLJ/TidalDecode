@@ -15,24 +15,22 @@ from src.utils import load, download_url, load_jsonl
 from src.enabling_index import enable_src
 
 
-
-
 @torch.no_grad()
 def index_inference(model, tokenizer, prompts, max_gen_len=64):
     for idx, prompt in enumerate(prompts):
         prompt = "USER: " + prompt + "\n\nASSISTANT: "
         print("\n" + prompt, end="")
         input_tensor = tokenizer(
-                        prompt, return_tensors="pt", return_attention_mask=False
-                    )
+            prompt, return_tensors="pt", return_attention_mask=False
+        )
         with torch.no_grad():
             outs = model.generate(
-            **input_tensor,
-            max_new_tokens=max_gen_len,
-            pad_token_id=tokenizer.eos_token_id,
-            eos_token_id=tokenizer.eos_token_id,
-            do_sample=False,
-        )
+                **input_tensor,
+                max_new_tokens=max_gen_len,
+                pad_token_id=tokenizer.eos_token_id,
+                eos_token_id=tokenizer.eos_token_id,
+                do_sample=False,
+            )
         new_tokens = outs[0, input_tensor["input_ids"].shape[-1] :]
         out = tokenizer.decode(new_tokens, skip_special_tokens=True)
         print(out)
@@ -67,7 +65,11 @@ def main(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--model_name", type=str, default="gradientai/Llama-3-8B-Instruct-Gradient-1048k")
+    parser.add_argument(
+        "--model_name",
+        type=str,
+        default="gradientai/Llama-3-8B-Instruct-Gradient-1048k",
+    )
     parser.add_argument("--data_root", type=str, default="data/")
     parser.add_argument("--top_k", type=int, default=None)
 

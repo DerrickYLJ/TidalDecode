@@ -154,12 +154,16 @@ if __name__ == "__main__":
     args.add_argument("--min_length", type=int, default=1000)
     args.add_argument("--top_k", type=int, default=None)
     args = args.parse_args()
-    args.res_file = os.path.join(args.res_file, str(args.top_k), f"{args.min_length//1000}K_{args.max_length//1000}K", "Index_s.json")
+    args.res_file = os.path.join(
+        args.res_file,
+        str(args.top_k),
+        f"{args.min_length//1000}K_{args.max_length//1000}K",
+        "Index_s.json",
+    )
 
     plot_needle_viz(
         args.res_file,
-        args = args,
+        args=args,
         model_name=args.model_name,
         mode=args.mode,
-        
     )

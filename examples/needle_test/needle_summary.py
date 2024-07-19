@@ -37,8 +37,12 @@ if __name__ == "__main__":
     args.add_argument("--min_length", type=int, default=1000)
     args.add_argument("--top_k", type=int, default=None)
     args = args.parse_args()
-    args.output_path = os.path.join(args.output_path, str(args.top_k), f"{args.min_length//1000}K_{args.max_length//1000}K")
-    
+    args.output_path = os.path.join(
+        args.output_path,
+        str(args.top_k),
+        f"{args.min_length//1000}K_{args.max_length//1000}K",
+    )
+
     summary(
         run_name=args.run_name,
         output_path=args.output_path,

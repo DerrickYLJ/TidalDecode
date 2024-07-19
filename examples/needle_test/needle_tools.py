@@ -18,10 +18,12 @@ from transformers import AutoModelForCausalLM, AutoTokenizer, GenerationConfig
 from torch.utils.checkpoint import checkpoint
 from src.utils import load, download_url, load_jsonl
 from src.enabling_index import enable_src
+
 # from vllm import LLM, SamplingParams
 
 # from minference import MInference
-os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'expandable_segments:True'
+os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
+
 
 class LLMNeedleHaystackTester:
     OURS_TEMPLATE = "Write a high-quality answer for the given question using only the provided search results (some of which might be irrelevant).\n{context}\n\nQuestion: {question} Don't give information outside the document or repeat your findings. Keep your response short and direct. Answer: "
@@ -201,9 +203,6 @@ class LLMNeedleHaystackTester:
             print(self.context_lengths)
             self.context_lengths = self.context_lengths[int(start) : int(end)]
             print(self.context_lengths)
-        self.tokenizer = AutoTokenizer.from_pretrained(
-            config.model_name, trust_remote_code=config.trust_remote_code
-        )
 
         self.model, self.tokenizer = load(config.model_name)
         print(self.model)
@@ -351,6 +350,9 @@ class LLMNeedleHaystackTester:
                     contexts.append(context)
 
             for context in tqdm(contexts):
+                depth = int(context["depth_percent"])
+                length = context["context_length"]
+
                 prompt = template.format(
                     context=context["context"], question=context["question"]
                 )
@@ -359,14 +361,13 @@ class LLMNeedleHaystackTester:
                 )
                 with torch.no_grad():
                     outs = self.model.generate(
-                    **input_tensor,
-                    generation_config=self.generation_config,
-                    do_sample=False,
-
-                )
+                        **input_tensor,
+                        generation_config=self.generation_config,
+                        do_sample=False,
+                    )
                 new_tokens = outs[0, input_tensor["input_ids"].shape[-1] :]
                 out = self.tokenizer.decode(new_tokens, skip_special_tokens=True)
-                print(out)
+
                 results.append(
                     {
                         "context_length": context["context_length"],
@@ -376,6 +377,10 @@ class LLMNeedleHaystackTester:
                         "correct": context["needle_rnd_number"] in out,
                         "seed": context["seed"],
                     }
+                )
+                correct = context["needle_rnd_number"] in out
+                print(
+                    f"depth: {depth/100}; len: {length}; inserted_pos: {int(depth*length//100)}: correct: {correct}"
                 )
             with open(self.config.output_file, "w") as f:
                 json.dump(results, f)

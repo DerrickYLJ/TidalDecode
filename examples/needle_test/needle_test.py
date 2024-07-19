@@ -68,7 +68,7 @@ def main(
         kv_cache_cpu=kv_cache_cpu,
         trust_remote_code=trust_remote_code,
         kv_cache_cpu_device=kv_cache_cpu_device,
-        top_k = top_k,
+        top_k=top_k,
     )
     kwargs = {
         "swap_space": 64,
@@ -121,7 +121,11 @@ if __name__ == "__main__":
     args.add_argument("--kv_cache_cpu_device", type=str, default="cpu")
     args.add_argument("--trust_remote_code", action="store_true")
     args = args.parse_args()
-    args.output_path = os.path.join(args.output_path, str(args.top_k), f"{args.min_length//1000}K_{args.max_length//1000}K")
+    args.output_path = os.path.join(
+        args.output_path,
+        str(args.top_k),
+        f"{args.min_length//1000}K_{args.max_length//1000}K",
+    )
     main(
         model_name=args.model_name,
         run_name=args.run_name,
@@ -135,5 +139,5 @@ if __name__ == "__main__":
         kv_cache_cpu=args.kv_cache_cpu,
         trust_remote_code=args.trust_remote_code,
         kv_cache_cpu_device=args.kv_cache_cpu_device,
-        top_k = args.top_k,
+        top_k=args.top_k,
     )
