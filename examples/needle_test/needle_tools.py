@@ -367,7 +367,6 @@ class LLMNeedleHaystackTester:
                     )
                 new_tokens = outs[0, input_tensor["input_ids"].shape[-1] :]
                 out = self.tokenizer.decode(new_tokens, skip_special_tokens=True)
-
                 results.append(
                     {
                         "context_length": context["context_length"],
