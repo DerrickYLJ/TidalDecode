@@ -133,10 +133,8 @@ if __name__ == "__main__":
     nb_list = [2000, 4000, 8000, 16000, 32000]
     k_list = [200, 400, 800]
     num_kv_heads = 8
-
+    # warm up program
     warm_up(2, nq_list, nb_list, k_list)
-    exit()
-
     main(
         model_name=args.model_name,
         run_name=args.run_name,
