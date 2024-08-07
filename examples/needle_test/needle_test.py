@@ -9,6 +9,7 @@ from datetime import datetime
 from needle_tools import LLMNeedleHaystackTester
 from needle_viz import plot_needle_viz
 
+from examples.needle_test.index_example import warm_up 
 
 @dataclass
 class Config:
@@ -126,6 +127,16 @@ if __name__ == "__main__":
         str(args.top_k),
         f"{args.min_length//1000}K_{args.max_length//1000}K",
     )
+
+    num_itr = 10
+    nq_list = [1, 2, 8, 16, 32]
+    nb_list = [2000, 4000, 8000, 16000, 32000]
+    k_list = [200, 400, 800]
+    num_kv_heads = 8
+
+    warm_up(2, nq_list, nb_list, k_list)
+    exit()
+
     main(
         model_name=args.model_name,
         run_name=args.run_name,

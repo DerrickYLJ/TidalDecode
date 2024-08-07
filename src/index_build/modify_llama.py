@@ -43,16 +43,65 @@ class KeyValueIndexStore:
             keys = np.ascontiguousarray(keys).astype(np.float32)
             self.key_index_store[head].add(keys)
 
-    def search_index_store(self, query_states):
+    def batch_search_index_store(self, query_states):
         if self.top_k is None:
             raise ValueError("Top-k is None!")
         bsz, num_heads, q_len, head_dim = query_states.size()
+        self.kv_group_num = num_heads // self.num_kv_heads
         retrieved_k = []
         retrieved_v = []
+        bsz, num_heads, q_len, head_dim = query_states.size()
+        if q_len > 1:
+            raise ValueError("Index Retrieval only supports generation!")
+        
+        # Perform batched retrieval for each key-value head
+        for i_index in range(self.num_kv_heads):
+            # Gather queries for the current key-value head
+            head_indices = np.arange(i_index*self.kv_group_num, (i_index+1)*self.kv_group_num)
+            print(f"head_indices: {head_indices}")
+            queries = query_states[:, head_indices, :, :].reshape(-1, head_dim).numpy()
+            queries = np.ascontiguousarray(queries).astype(np.float32)
+            
+            # Perform the batched search on the current index store
+            _, I_k = self.key_index_store[i_index].search(queries, k=self.top_k)
+            
+            # Sort the indices and retrieve keys and values
+            sorted_indices = np.argsort(I_k, axis=1)
+            sorted_I_k = np.take_along_axis(I_k, sorted_indices, axis=1)
+            
+            keys_retrieved = self.past_key_value[0][:, i_index, :, :].reshape(-1, head_dim)[sorted_I_k].reshape(bsz, -1, self.top_k, head_dim)
+            values_retrieved = self.past_key_value[1][:, i_index, :, :].reshape(-1, head_dim)[sorted_I_k].reshape(bsz, -1, self.top_k, head_dim)
+            
+            retrieved_k.append(keys_retrieved)
+            retrieved_v.append(values_retrieved)
+        
+        retrieved_k = torch.cat(retrieved_k, dim=1)
+        retrieved_v = torch.cat(retrieved_v, dim=1)
+
+        if retrieved_k.size() != (bsz, num_heads, self.top_k, head_dim):
+            raise ValueError(
+                f"retrieved shape is incorrect, should be ({bsz, num_heads, self.top_k, head_dim}), but got {retrieved_k.size()}"
+            )
+        if retrieved_k.size() != retrieved_v.size():
+            raise ValueError(
+                f"retrieved_k and retrieved_v are mismatched, retrieved_k: {retrieved_k.size()} but retrieved_v: {retrieved_v.size()}"
+            )
+        
+        return (retrieved_k, retrieved_v)
+    
+    def single_search_index_store(self, query_states):
+        if self.top_k is None:
+            raise ValueError("Top-k is None!")
+        bsz, num_heads, q_len, head_dim = query_states.size()
+        self.kv_group_num = num_heads // self.num_kv_heads
+        retrieved_k = []
+        retrieved_v = []
+        bsz, num_heads, q_len, head_dim = query_states.size()
         if q_len > 1:
             raise ValueError("Index Retrieval only supports generation!")
         for head in range(num_heads):
             i_index = head // (num_heads // self.num_kv_heads)
+            print(f"head: {head}; i_index: {i_index}")
             queries = query_states[:, head, :, :].reshape(-1, head_dim).numpy()
             queries = np.ascontiguousarray(queries).astype(np.float32)
             _, I_k = self.key_index_store[i_index].search(queries, k=self.top_k)
@@ -74,8 +123,8 @@ class KeyValueIndexStore:
             raise ValueError(
                 f"retrieved_k and retrieved_v are mismatched, retrieved_k: {retrieved_k.size()} but retrieved_v: {retrieved_v.size()}"
             )
-        return (retrieved_k, retrieved_v)
 
+        return (retrieved_k, retrieved_v)
 
 def llama_index_build_attention_forward(
     self,
@@ -154,7 +203,7 @@ def llama_index_build_attention_forward(
     if top_k is not None and q_len == 1:
         # Timing start for index search
         start_index_search_time = time.time()
-        key_states, value_states = self.kv_index_store.search_index_store(query_states.to("cpu"))
+        key_states, value_states = self.kv_index_store.batch_search_index_store(query_states.to("cpu"))
         end_index_search_time = time.time()
         index_search_time = end_index_search_time - start_index_search_time
         

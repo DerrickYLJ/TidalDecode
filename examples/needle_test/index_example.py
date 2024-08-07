@@ -129,18 +129,6 @@ def measure_latency_parallel(num_itr, nq_list, nb_list, k_list, num_kv_heads):
 
     return results
 
-# Define parameters
-num_itr = 10
-nq_list = [1]
-nb_list = [32000]
-k_list = [2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048]
-num_kv_heads = 8
-
-# Warm-up
-warm_up(2, nq_list, nb_list, k_list)
-
-# Measure latency
-results = measure_latency(num_itr, nq_list, nb_list, k_list, num_kv_heads)
 
 # Plot results
 def plot_results(results, nb_list):
@@ -216,5 +204,19 @@ def plot_results(results, nb_list):
     plt.tight_layout()
     fig.savefig(f'data/latency_plot/index_retrieval/complete_cpu_summary.png')
 
-# Plot the results for each nb and complete summaries
-plot_results(results, nb_list)
+
+if __name__ == "__main__":
+    # Define parameters
+    num_itr = 10
+    nq_list = [1, 2, 8, 16, 32]
+    nb_list = [2000, 4000, 8000, 16000, 32000]
+    k_list = [200, 400, 800]
+    num_kv_heads = 8
+
+    # Warm-up
+    warm_up(2, nq_list, nb_list, k_list)
+
+    # Measure latency
+    results = measure_latency(num_itr, nq_list, nb_list, k_list, num_kv_heads)
+    # Plot the results for each nb and complete summaries
+    plot_results(results, nb_list)
