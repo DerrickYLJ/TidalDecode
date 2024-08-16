@@ -44,6 +44,7 @@ class KeyValueIndexStore:
             self.key_index_store[head].add(keys)
 
     def batch_search_index_store(self, query_states):
+        # batch the query heads in the search for each kv_head
         if self.top_k is None:
             raise ValueError("Top-k is None!")
         bsz, num_heads, q_len, head_dim = query_states.size()
@@ -58,7 +59,6 @@ class KeyValueIndexStore:
         for i_index in range(self.num_kv_heads):
             # Gather queries for the current key-value head
             head_indices = np.arange(i_index*self.kv_group_num, (i_index+1)*self.kv_group_num)
-            print(f"head_indices: {head_indices}")
             queries = query_states[:, head_indices, :, :].reshape(-1, head_dim).numpy()
             queries = np.ascontiguousarray(queries).astype(np.float32)
             
@@ -90,6 +90,7 @@ class KeyValueIndexStore:
         return (retrieved_k, retrieved_v)
     
     def single_search_index_store(self, query_states):
+        # iterate the index search per query-head
         if self.top_k is None:
             raise ValueError("Top-k is None!")
         bsz, num_heads, q_len, head_dim = query_states.size()
@@ -101,7 +102,6 @@ class KeyValueIndexStore:
             raise ValueError("Index Retrieval only supports generation!")
         for head in range(num_heads):
             i_index = head // (num_heads // self.num_kv_heads)
-            print(f"head: {head}; i_index: {i_index}")
             queries = query_states[:, head, :, :].reshape(-1, head_dim).numpy()
             queries = np.ascontiguousarray(queries).astype(np.float32)
             _, I_k = self.key_index_store[i_index].search(queries, k=self.top_k)
