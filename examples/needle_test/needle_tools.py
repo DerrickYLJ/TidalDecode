@@ -19,6 +19,8 @@ from torch.utils.checkpoint import checkpoint
 from src.utils import load, download_url, load_jsonl
 from src.enabling_index import enable_src
 
+from mpi4py import MPI
+
 # from vllm import LLM, SamplingParams
 
 # from minference import MInference
@@ -203,14 +205,14 @@ class LLMNeedleHaystackTester:
             print(self.context_lengths)
             self.context_lengths = self.context_lengths[int(start) : int(end)]
             print(self.context_lengths)
-
-        self.model, self.tokenizer = load(config.model_name)
+        self.comm = config.comm
+        self.model, self.tokenizer = load(config.model_name, self.comm)
         print(self.model)
-        enable_src(self.model, config.top_k)
+        enable_src(self.model, config.top_k, self.comm)
         self.generation_config = GenerationConfig(
             max_new_tokens=32,
-            pad_token_id=self.tokenizer.pad_token_id,
-            eos_token_id=self.tokenizer.eos_token_id,
+            pad_token_id=self.tokenizer.pad_token_id if self.tokenizer != None else None,
+            eos_token_id=self.tokenizer.eos_token_id if self.tokenizer != None else None,
             do_sample=False,
         )
 
@@ -381,6 +383,10 @@ class LLMNeedleHaystackTester:
                 print(
                     f"depth: {depth/100}; len: {length}; inserted_pos: {int(depth*length//100)}: correct: {correct}"
                 )
+                end_sig = True
+                end_sig = self.comm.bcast(end_sig, root=0)
+                print(f"pid: {self.comm.Get_rank()}, end communication!")
+                exit()
             with open(self.config.output_file, "w") as f:
                 json.dump(results, f)
         print("elapsed", time.time() - start)

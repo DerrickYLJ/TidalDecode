@@ -10,6 +10,7 @@ from needle_tools import LLMNeedleHaystackTester
 from needle_viz import plot_needle_viz
 
 from examples.needle_test.index_example import warm_up 
+from mpi4py import MPI
 
 @dataclass
 class Config:
@@ -31,6 +32,7 @@ class Config:
     trust_remote_code: bool = False
     kv_cache_cpu_device: str = "cpu"
     top_k: int = None
+    comm: MPI.Comm = None # MPI communicator
 
     def __post_init__(self):
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -54,8 +56,11 @@ def main(
     trust_remote_code: bool = False,
     kv_cache_cpu_device: str = "cpu",
     top_k: int = None,
+    use_mpi: bool = False,
 ):
     print(f"top_k: {top_k}")
+    comm = MPI.COMM_WORLD if use_mpi else None
+    print(type(comm))
     config = Config(
         model_name=model_name,
         run_name=run_name,
@@ -70,27 +75,30 @@ def main(
         trust_remote_code=trust_remote_code,
         kv_cache_cpu_device=kv_cache_cpu_device,
         top_k=top_k,
+        comm=comm,
     )
     kwargs = {
         "swap_space": 64,
         "gpu_memory_utilization": 0.98,
     }
     ht = LLMNeedleHaystackTester(config, **kwargs if config.attn_type == "vllm" else {})
-    ht.start_test()
+    if not use_mpi or comm.Get_rank() == 0:
+        ht.start_test()
 
-    print("making plot...")
-    plot_needle_viz(
-        config.output_file,
-        (
-            config.model_name.replace("/", "-") + f"_{config.run_name}"
-            if config.run_name is not None
-            else ""
-        ),
-        config.context_lengths_min,
-        config.context_lengths_max,
-        mode=attn_type,
-        output_path=config.output_path,
-    )
+        print("making plot...")
+        plot_needle_viz(
+            config.output_file,
+            (
+                config.model_name.replace("/", "-") + f"_{config.run_name}"
+                if config.run_name is not None
+                else ""
+            ),
+            config.context_lengths_min,
+            config.context_lengths_max,
+            mode=attn_type,
+            output_path=config.output_path,
+        )
+    
 
 
 if __name__ == "__main__":
@@ -121,12 +129,14 @@ if __name__ == "__main__":
     args.add_argument("--kv_cache_cpu", action="store_true")
     args.add_argument("--kv_cache_cpu_device", type=str, default="cpu")
     args.add_argument("--trust_remote_code", action="store_true")
+    args.add_argument("--use_mpi", action="store_true")
     args = args.parse_args()
     args.output_path = os.path.join(
         args.output_path,
         str(args.top_k),
         f"{args.min_length//1000}K_{args.max_length//1000}K",
     )
+    
 
     num_itr = 10
     nq_list = [1, 2, 8, 16, 32]
@@ -134,7 +144,7 @@ if __name__ == "__main__":
     k_list = [200, 400, 800]
     num_kv_heads = 8
     # warm up program
-    warm_up(2, nq_list, nb_list, k_list)
+    # warm_up(2, nq_list, nb_list, k_list)
     main(
         model_name=args.model_name,
         run_name=args.run_name,
@@ -149,4 +159,5 @@ if __name__ == "__main__":
         trust_remote_code=args.trust_remote_code,
         kv_cache_cpu_device=args.kv_cache_cpu_device,
         top_k=args.top_k,
+        use_mpi=args.use_mpi,
     )

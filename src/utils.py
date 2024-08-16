@@ -9,6 +9,7 @@ import ssl
 import urllib.request
 import os
 import json
+from mpi4py import MPI
 
 
 def parse_args():
@@ -48,29 +49,33 @@ def parse_args():
     return args
 
 
-def load(model_name_or_path):
-    print(f"Loading model from {model_name_or_path} ...")
-    # however, tensor parallel for running falcon will occur bugs
-    tokenizer = AutoTokenizer.from_pretrained(
-        model_name_or_path,
-        trust_remote_code=True,
-    )
-    model = AutoModelForCausalLM.from_pretrained(
-        model_name_or_path,
-        device_map="auto",
-        torch_dtype=torch.float16,
-        trust_remote_code=True,
-        pretraining_tp=4,
-    )
-    if tokenizer.pad_token_id is None:
-        if tokenizer.eos_token_id is not None:
-            tokenizer.pad_token_id = tokenizer.eos_token_id
-        else:
-            tokenizer.pad_token_id = 0
+def load(model_name_or_path, comm=None):
+    rank = comm.Get_rank() if comm != None else 0
+    if rank == 0:
+        print(f"Loading model from {model_name_or_path} ...")
+        # however, tensor parallel for running falcon will occur bugs
+        tokenizer = AutoTokenizer.from_pretrained(
+            model_name_or_path,
+            trust_remote_code=True,
+        )
+        model = AutoModelForCausalLM.from_pretrained(
+            model_name_or_path,
+            device_map="auto",
+            torch_dtype=torch.float16,
+            trust_remote_code=True,
+            pretraining_tp=4,
+        )
+        if tokenizer.pad_token_id is None:
+            if tokenizer.eos_token_id is not None:
+                tokenizer.pad_token_id = tokenizer.eos_token_id
+            else:
+                tokenizer.pad_token_id = 0
 
-    model.eval()
+        model.eval()
 
-    return model, tokenizer
+        return model, tokenizer
+    else:
+        return None, None
 
 
 def download_url(url: str, folder="folder"):

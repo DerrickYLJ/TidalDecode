@@ -12,6 +12,7 @@ from transformers.models.llama.modeling_llama import (
 )
 import faiss
 import numpy as np
+from mpi4py import MPI
 
 class KeyValueIndexStore:
     def __init__(self, res, dimension, num_kv_heads, top_k, prefilling, layer_idx):
@@ -136,6 +137,8 @@ def llama_index_build_attention_forward(
     use_cache: bool = False,
     cache_position: Optional[torch.LongTensor] = None,
     top_k: int = None,
+    comm = None,
+    total_rank = 1,
 ):
     bsz, q_len, _ = hidden_states.size()
 
@@ -189,6 +192,10 @@ def llama_index_build_attention_forward(
             )
         past_key_value = (self.kv_index_store.past_key_value[0], self.kv_index_store.past_key_value[1])
     else:
+        index_store_config = [self.head_dim, self.num_key_value_heads, top_k, self.layer_idx]
+        if self.layer_idx == 0:
+            print(f"pid: {comm.Get_rank()}; index_store_config: {index_store_config}")
+            index_store_config = comm.bcast(index_store_config, root=0)
         self.kv_index_store = KeyValueIndexStore(
             self.res, self.head_dim, self.num_key_value_heads, top_k, [key_states_cpu, value_states_cpu], self.layer_idx
         )
@@ -274,6 +281,7 @@ def llama_index_build_attention_forward(
         attn_weights = None
 
     # Print out timing results
+    print(f"pid: {comm.Get_rank()}")
     print(f"Data Transfer Time: {transfer_time:.6f} seconds")
     print(f"Index Update Time: {index_update_time:.6f} seconds")
     print(f"Index Search Time: {index_search_time:.6f} seconds" if top_k is not None and q_len == 1 else "Index Search Time: 0.0 seconds")
@@ -294,6 +302,7 @@ def enable_llama_index_build_attention(model, top_k, comm=None):
             output_attentions=False,
             use_cache=False,
             top_k=top_k,
+            comm=comm,
         ):
             return llama_index_build_attention_forward(
                 module,
@@ -304,12 +313,29 @@ def enable_llama_index_build_attention(model, top_k, comm=None):
                 output_attentions,
                 use_cache,
                 top_k=top_k,
+                comm=comm,
+                total_rank=comm.Get_size(),
             )
 
         module.forward = new_forward
+    if model != None and comm!=None:
+        if comm.Get_rank() == 0:
+            print(f"pid: {comm.Get_rank()}")
+            for name, module in reversed(model._modules.items()):
+                if len(list(module.children())) > 0:
+                    enable_llama_index_build_attention(module, top_k, comm)
+                if isinstance(module, LlamaAttention):
+                    wrap_forward(module)
+    else:
+        if comm != None:
+            pid = comm.Get_rank()
+            print(f"pid: {pid}, start communication")
+            store_list = []
+            end_sig = False # used for termitation
+            index_store_config = [] # configs for index store
+            index_store_config =  comm.bcast(index_store_config, root=0)
+            print(f"pid: {pid}; index_store_config: {index_store_config}")
+            while not end_sig:
+                end_sig = comm.bcast(end_sig, root=0)
+            print(f"pid: {pid}, end communication!")
 
-    for name, module in reversed(model._modules.items()):
-        if len(list(module.children())) > 0:
-            enable_llama_index_build_attention(module, top_k)
-        if isinstance(module, LlamaAttention):
-            wrap_forward(module)
