@@ -60,7 +60,6 @@ def main(
 ):
     print(f"top_k: {top_k}")
     comm = MPI.COMM_WORLD if use_mpi else None
-    print(type(comm))
     config = Config(
         model_name=model_name,
         run_name=run_name,

@@ -383,8 +383,7 @@ class LLMNeedleHaystackTester:
                 print(
                     f"depth: {depth/100}; len: {length}; inserted_pos: {int(depth*length//100)}: correct: {correct}"
                 )
-                end_sig = True
-                end_sig = self.comm.bcast(end_sig, root=0)
+                self.comm.Abort()
                 print(f"pid: {self.comm.Get_rank()}, end communication!")
                 exit()
             with open(self.config.output_file, "w") as f:
