@@ -13,7 +13,8 @@ from functools import cached_property
 import numpy as np
 import torch
 from absl.app import run
-from tqdm import tqdm
+from tqdm import tqdm, trange
+from tqdm.contrib import tenumerate
 from transformers import AutoModelForCausalLM, AutoTokenizer, GenerationConfig
 from torch.utils.checkpoint import checkpoint
 from src.utils import load, download_url, load_jsonl
@@ -220,6 +221,42 @@ class LLMNeedleHaystackTester:
         lower_bound = 10 ** (num_digits - 1)
         upper_bound = 10**num_digits - 1
         return random.randint(lower_bound, upper_bound)
+    
+    def generate_prompt(self, n_garbage, depth_ratio):
+        """Generates a text file and inserts an execute line at a random position."""
+
+        # Generate test depth
+        # depth_ratio = 0 means random depth
+        if depth_ratio == 0:
+            n_garbage_prefix = random.randint(0, n_garbage)
+        else:
+            n_garbage_prefix = int(n_garbage * depth_ratio / 100)
+
+        n_garbage_suffix = n_garbage - n_garbage_prefix
+        task_description = "There is an important info hidden inside a lot of irrelevant text. Find it and memorize them. I will quiz you about the important information there."
+        garbage = "The grass is green. The sky is blue. The sun is yellow. Here we go. There and back again."
+        garbage_inf = " ".join([garbage] * 10000)
+        assert len(garbage_inf) >= n_garbage
+        garbage_prefix = garbage_inf[:n_garbage_prefix]
+        garbage_suffix = garbage_inf[:n_garbage_suffix]
+        pass_key = random.randint(1, 50000)
+        information_line = (
+            f"The pass key is {pass_key}. Remember it. {pass_key} is the pass key."
+        )
+        final_question = "What is the pass key? The pass key is"
+        lines = [
+            task_description,
+            garbage_prefix,
+            information_line,
+            garbage_suffix,
+            final_question,
+        ]
+        return (
+            "\n".join(lines),
+            pass_key,
+            "\n".join([task_description, garbage_prefix]),
+            "\n".join([task_description, garbage_prefix, information_line]),
+        )
 
     def logistic(self, x, L=100, x0=50, k=0.1):
         if x == 0:
@@ -311,7 +348,7 @@ class LLMNeedleHaystackTester:
     def run_test(self):
         contexts = []
         template = self.OURS_TEMPLATE
-
+        excluded_time = None
         def _key_from_result(result):
             return (result["context_length"], result["depth_percent"], result["seed"])
 
@@ -369,6 +406,7 @@ class LLMNeedleHaystackTester:
                     )
                 new_tokens = outs[0, input_tensor["input_ids"].shape[-1] :]
                 out = self.tokenizer.decode(new_tokens, skip_special_tokens=True)
+                init = time.time()
                 results.append(
                     {
                         "context_length": context["context_length"],
@@ -383,12 +421,16 @@ class LLMNeedleHaystackTester:
                 print(
                     f"depth: {depth/100}; len: {length}; inserted_pos: {int(depth*length//100)}: correct: {correct}"
                 )
-                self.comm.Abort()
-                print(f"pid: {self.comm.Get_rank()}, end communication!")
-                exit()
+                print("output: ", out)
+                # Create all-zero numpy array to scatter
+                # TODO; more fine-grained size
+                zero_array = np.zeros((1, 8, 1, 128), dtype=np.float32)
+                if self.comm != None:
+                    self.comm.Scatter(zero_array, None, root=0)
+                excluded_time = time.time() - init if excluded_time == None else excluded_time + time.time() - init
             with open(self.config.output_file, "w") as f:
                 json.dump(results, f)
-        print("elapsed", time.time() - start)
+        print("elapsed", time.time() - start - excluded_time)
         print("done")
         print(f"Saved results to {self.config.output_file}")
 
@@ -404,7 +446,31 @@ class LLMNeedleHaystackTester:
         print(f"- Needle: {self.needle.strip()}")
         print("\n\n")
 
+    def quest_needle(self):
+        iterations = 100
+        for i, length in tenumerate([self.context_lengths[-1]], desc="Lengths", leave=False):
+            for _ in trange(0, iterations, desc="Iterations", leave=False):
+                depth_ratio = 100 // iterations * (_ + 1)
+                prompt_text, pass_key, answer_first, answer_last = self.generate_prompt(
+                    length, depth_ratio
+                )
+                input_tensor = self.tokenizer(
+                    prompt_text, return_tensors="pt", return_attention_mask=False
+                )
+                with torch.no_grad():
+                    outs = self.model.generate(
+                        **input_tensor,
+                        generation_config=self.generation_config,
+                        do_sample=False,
+                    )
+                new_tokens = outs[0, input_tensor["input_ids"].shape[-1] :]
+                out = self.tokenizer.decode(new_tokens, skip_special_tokens=True)
+                print(f"depth_ratio: {depth_ratio, length}, correct: {str(pass_key) in out}")
+                print(f"pass_key: {pass_key}, answer: {out}")
+
+
     def start_test(self):
         if self.print_ongoing_status:
             self.print_start_test_summary()
         self.run_test()
+        # self.quest_needle()
