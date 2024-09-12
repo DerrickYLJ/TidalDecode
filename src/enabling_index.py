@@ -1,5 +1,6 @@
 from mpi4py import MPI
 
+
 def enable_src(model, top_k, comm):
     # Broadcast model.config.model_type to all ranks
     if comm != None:
@@ -13,7 +14,7 @@ def enable_src(model, top_k, comm):
             from src.index_build.modify_llama_mpi import (
                 enable_llama_index_build_attention,
             )
-        else: 
+        else:
             from src.index_build.modify_llama import (
                 enable_llama_index_build_attention,
             )
@@ -24,6 +25,7 @@ def enable_src(model, top_k, comm):
         from src.index_build.modify_mpt import (
             enable_mpt_index_build_attention,
         )
+
         enable_mpt_index_build_attention(model)
     elif "gpt_neox" in model_type:
         k_seq_dim = v_seq_dim = 2

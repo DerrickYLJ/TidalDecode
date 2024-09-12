@@ -9,8 +9,9 @@ from datetime import datetime
 from needle_tools import LLMNeedleHaystackTester
 from needle_viz import plot_needle_viz
 
-from examples.needle_test.index_example import warm_up 
+from examples.needle_test.index_example import warm_up
 from mpi4py import MPI
+
 
 @dataclass
 class Config:
@@ -32,7 +33,7 @@ class Config:
     trust_remote_code: bool = False
     kv_cache_cpu_device: str = "cpu"
     top_k: int = None
-    comm: MPI.Comm = None # MPI communicator
+    comm: MPI.Comm = None  # MPI communicator
 
     def __post_init__(self):
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -97,7 +98,6 @@ def main(
             mode=attn_type,
             output_path=config.output_path,
         )
-    
 
 
 if __name__ == "__main__":
@@ -135,7 +135,6 @@ if __name__ == "__main__":
         str(args.top_k),
         f"{args.min_length//1000}K_{args.max_length//1000}K",
     )
-    
 
     num_itr = 10
     nq_list = [1, 2, 8, 16, 32]

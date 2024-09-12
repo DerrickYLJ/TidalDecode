@@ -212,8 +212,12 @@ class LLMNeedleHaystackTester:
         enable_src(self.model, config.top_k, self.comm)
         self.generation_config = GenerationConfig(
             max_new_tokens=32,
-            pad_token_id=self.tokenizer.pad_token_id if self.tokenizer != None else None,
-            eos_token_id=self.tokenizer.eos_token_id if self.tokenizer != None else None,
+            pad_token_id=(
+                self.tokenizer.pad_token_id if self.tokenizer != None else None
+            ),
+            eos_token_id=(
+                self.tokenizer.eos_token_id if self.tokenizer != None else None
+            ),
             do_sample=False,
         )
 
@@ -221,7 +225,7 @@ class LLMNeedleHaystackTester:
         lower_bound = 10 ** (num_digits - 1)
         upper_bound = 10**num_digits - 1
         return random.randint(lower_bound, upper_bound)
-    
+
     def generate_prompt(self, n_garbage, depth_ratio):
         """Generates a text file and inserts an execute line at a random position."""
 
@@ -349,6 +353,7 @@ class LLMNeedleHaystackTester:
         contexts = []
         template = self.OURS_TEMPLATE
         excluded_time = None
+
         def _key_from_result(result):
             return (result["context_length"], result["depth_percent"], result["seed"])
 
@@ -427,7 +432,11 @@ class LLMNeedleHaystackTester:
                 zero_array = np.zeros((1, 8, 1, 128), dtype=np.float32)
                 if self.comm != None:
                     self.comm.Scatter(zero_array, None, root=0)
-                excluded_time = time.time() - init if excluded_time == None else excluded_time + time.time() - init
+                excluded_time = (
+                    time.time() - init
+                    if excluded_time == None
+                    else excluded_time + time.time() - init
+                )
             with open(self.config.output_file, "w") as f:
                 json.dump(results, f)
         print("elapsed", time.time() - start - excluded_time)
@@ -448,7 +457,9 @@ class LLMNeedleHaystackTester:
 
     def quest_needle(self):
         iterations = 100
-        for i, length in tenumerate([self.context_lengths[-1]], desc="Lengths", leave=False):
+        for i, length in tenumerate(
+            [self.context_lengths[-1]], desc="Lengths", leave=False
+        ):
             for _ in trange(0, iterations, desc="Iterations", leave=False):
                 depth_ratio = 100 // iterations * (_ + 1)
                 prompt_text, pass_key, answer_first, answer_last = self.generate_prompt(
@@ -465,9 +476,10 @@ class LLMNeedleHaystackTester:
                     )
                 new_tokens = outs[0, input_tensor["input_ids"].shape[-1] :]
                 out = self.tokenizer.decode(new_tokens, skip_special_tokens=True)
-                print(f"depth_ratio: {depth_ratio, length}, correct: {str(pass_key) in out}")
+                print(
+                    f"depth_ratio: {depth_ratio, length}, correct: {str(pass_key) in out}"
+                )
                 print(f"pass_key: {pass_key}, answer: {out}")
-
 
     def start_test(self):
         if self.print_ongoing_status:
