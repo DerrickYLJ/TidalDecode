@@ -209,7 +209,7 @@ class LLMNeedleHaystackTester:
         self.comm = config.comm
         self.model, self.tokenizer = load(config.model_name, self.comm)
         print(self.model)
-        enable_src(self.model, config.top_k, self.comm)
+        enable_src(self.model, config.top_k, self.comm, config.attn_type)
         self.generation_config = GenerationConfig(
             max_new_tokens=32,
             pad_token_id=(
@@ -363,6 +363,8 @@ class LLMNeedleHaystackTester:
             self.tokenizer.encode(full_context) for full_context in tqdm(full_contexts)
         ]
 
+        correct_cnt = 0
+        total_cnt = 0
         start = time.time()
         for context_length in self.context_lengths:
             torch.cuda.empty_cache()
@@ -393,7 +395,7 @@ class LLMNeedleHaystackTester:
                     )
                     contexts.append(context)
 
-            for context in tqdm(contexts):
+            for _, context in enumerate(tqdm(contexts)):
                 depth = int(context["depth_percent"])
                 length = context["context_length"]
 
@@ -423,8 +425,10 @@ class LLMNeedleHaystackTester:
                     }
                 )
                 correct = context["needle_rnd_number"] in out
+                correct_cnt = correct_cnt+1 if correct else correct_cnt
+                total_cnt += 1
                 print(
-                    f"depth: {depth/100}; len: {length}; inserted_pos: {int(depth*length//100)}: correct: {correct}"
+                    f"depth: {depth/100}; len: {length}; inserted_pos: {int(depth*length//100)}: correct: {correct}", flush=True
                 )
                 print("output: ", out)
                 # Create all-zero numpy array to scatter
@@ -442,6 +446,7 @@ class LLMNeedleHaystackTester:
         print("elapsed", time.time() - start - excluded_time)
         print("done")
         print(f"Saved results to {self.config.output_file}")
+        print("correctness rate: ", correct_cnt/total_cnt)
 
     def print_start_test_summary(self):
         print("\n")
@@ -458,7 +463,7 @@ class LLMNeedleHaystackTester:
     def quest_needle(self):
         iterations = 100
         for i, length in tenumerate(
-            [self.context_lengths[-1]], desc="Lengths", leave=False
+            [self.context_lengths[0]], desc="Lengths", leave=False
         ):
             for _ in trange(0, iterations, desc="Iterations", leave=False):
                 depth_ratio = 100 // iterations * (_ + 1)

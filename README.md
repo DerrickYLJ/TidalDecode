@@ -8,5 +8,5 @@ python setup.py develop
 ```
 Run example:
 ```
-python examples/run_index_llama.py  --top_k 1 --model_name gradientai/Llama-3-8B-Instruct-Gradient-1048k # top-k retrieval
+python examples/run_index_llama.py  --top_k 256 --model_name gradientai/Llama-3-8B-Instruct-Gradient-1048k # top-k retrieval
 ```

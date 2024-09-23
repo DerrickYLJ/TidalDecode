@@ -16,7 +16,7 @@ from src.enabling_index import enable_src
 
 
 @torch.no_grad()
-def index_inference(model, tokenizer, prompts, max_gen_len=64):
+def index_inference(model, tokenizer, prompts, max_gen_len=256):
     for idx, prompt in enumerate(prompts):
         prompt = "USER: " + prompt + "\n\nASSISTANT: "
         print("\n" + prompt, end="")
@@ -54,7 +54,7 @@ def main(args):
     for sample in list_data:
         prompts += sample["turns"]
 
-    enable_src(model, args.top_k)
+    enable_src(model, args.top_k, None)
 
     index_inference(
         model,

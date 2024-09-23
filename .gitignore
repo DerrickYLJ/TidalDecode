@@ -168,3 +168,4 @@ attn_plot/
 *.sh
 data/
 needle/
+results/

@@ -101,61 +101,187 @@ def main(
 
 
 if __name__ == "__main__":
-    args = argparse.ArgumentParser()
-    args.add_argument("--model_name", type=str, default="lmsys/vicuna-13b-v1.3")
-    args.add_argument("--run_name", type=str, default=None)
-    args.add_argument(
-        "--attn_type",
-        type=str,
-        required=True,
-        choices=[
-            "vllm",
-            "hf",
-            "streaming",
-            "minference",
-            "inf_llm",
-            "minference_with_dense",
-        ],
-    )
+    if True:
+        args = argparse.ArgumentParser()
+        args.add_argument("--model_name", type=str, default="lmsys/vicuna-13b-v1.3")
+        args.add_argument("--run_name", type=str, default=None)
+        args.add_argument(
+            "--attn_type",
+                type=str,
+                choices=[
+                    "index",
+                    "quest"
+                ],
+                default="index",
+        )
 
-    args.add_argument("--top_k", type=int, default=None)
-    args.add_argument("--output_path", type=str, default="results/needle/")
-    args.add_argument("--pattern_path", type=str, default=None)
-    args.add_argument("--rounds", type=int, default=3)
-    args.add_argument("--jobs", type=str, default=None)
-    args.add_argument("--max_length", type=int, default=100000)
-    args.add_argument("--min_length", type=int, default=1000)
-    args.add_argument("--kv_cache_cpu", action="store_true")
-    args.add_argument("--kv_cache_cpu_device", type=str, default="cpu")
-    args.add_argument("--trust_remote_code", action="store_true")
-    args.add_argument("--use_mpi", action="store_true")
-    args = args.parse_args()
-    args.output_path = os.path.join(
-        args.output_path,
-        str(args.top_k),
-        f"{args.min_length//1000}K_{args.max_length//1000}K",
-    )
+        args.add_argument("--top_k", type=int, default=None)
+        args.add_argument("--output_path", type=str, default="results/needle/")
+        args.add_argument("--pattern_path", type=str, default=None)
+        args.add_argument("--rounds", type=int, default=3)
+        args.add_argument("--jobs", type=str, default=None)
+        args.add_argument("--max_length", type=int, default=100000)
+        args.add_argument("--min_length", type=int, default=1000)
+        args.add_argument("--kv_cache_cpu", action="store_true")
+        args.add_argument("--kv_cache_cpu_device", type=str, default="cpu")
+        args.add_argument("--trust_remote_code", action="store_true")
+        args.add_argument("--use_mpi", action="store_true")
+        args = args.parse_args()
+        args.output_path = os.path.join(
+            args.output_path,
+            str(args.top_k),
+            f"{args.min_length//1000}K_{args.max_length//1000}K",
+        )
 
-    num_itr = 10
-    nq_list = [1, 2, 8, 16, 32]
-    nb_list = [2000, 4000, 8000, 16000, 32000]
-    k_list = [200, 400, 800]
-    num_kv_heads = 8
-    # warm up program
-    # warm_up(2, nq_list, nb_list, k_list)
-    main(
-        model_name=args.model_name,
-        run_name=args.run_name,
-        attn_type=args.attn_type,
-        output_path=args.output_path,
-        pattern_path=args.pattern_path,
-        rounds=args.rounds,
-        jobs=args.jobs,
-        max_length=args.max_length,
-        min_length=args.min_length,
-        kv_cache_cpu=args.kv_cache_cpu,
-        trust_remote_code=args.trust_remote_code,
-        kv_cache_cpu_device=args.kv_cache_cpu_device,
-        top_k=args.top_k,
-        use_mpi=args.use_mpi,
-    )
+
+        # warm up program
+        # warm_up(2, nq_list, nb_list, k_list)
+        main(
+            model_name=args.model_name,
+            run_name=args.run_name,
+            attn_type=args.attn_type,
+            output_path=args.output_path,
+            pattern_path=args.pattern_path,
+            rounds=args.rounds,
+            jobs=args.jobs,
+            max_length=args.max_length,
+            min_length=args.min_length,
+            kv_cache_cpu=args.kv_cache_cpu,
+            trust_remote_code=args.trust_remote_code,
+            kv_cache_cpu_device=args.kv_cache_cpu_device,
+            top_k=args.top_k,
+            use_mpi=args.use_mpi,
+        )
+    else:
+        # tmp ppl test
+        # Copyright (c) 2024 Microsoft
+        # Licensed under The MIT License [see LICENSE for details]
+
+        import argparse
+        import gc
+        import json
+        import os
+
+        import datasets
+        import numpy as np
+        import torch
+        import torch.nn.functional as F
+        from tqdm import tqdm
+        from transformers import (
+            AutoConfig,
+            AutoModelForCausalLM,
+            AutoTokenizer,
+            LlamaForCausalLM,
+        )
+
+        from src.utils import load, download_url, load_jsonl
+        from src.enabling_index import enable_src
+
+        import torch
+        from tqdm import tqdm
+        import os
+        from transformers import AutoModelForCausalLM, AutoTokenizer
+        from datasets import load_dataset
+        from torch.nn import CrossEntropyLoss
+
+        import argparse
+        from argparse import ArgumentParser
+
+        device = "cuda"
+
+        parser = argparse.ArgumentParser()
+        parser.add_argument("--model_name_or_path", type=str)
+        parser.add_argument("--fixed-length", type=int)
+        parser.add_argument("--max-tokens", type=int, default=8192)
+        parser.add_argument("--min-tokens", type=int, default=256)
+        parser.add_argument("--tokens-step", type=int)
+        parser.add_argument("--length-step", type=int, default=128)
+        parser.add_argument("--iterations", type=int, default=20)
+        parser.add_argument("--output_dir", type=str)
+
+        parser.add_argument("--num_eval_tokens", type=int, default=None)
+
+        parser.add_argument(
+                "--attn_type",
+                type=str,
+                choices=[
+                    "index",
+                    "quest"
+                ],
+                default="index",
+            )
+        parser.add_argument("--top_k", type=int, default=1024)
+        parser.add_argument("--chunk_size", type=int, default=16)
+
+
+        def load_model(model_name_or_path, args):
+            print(f"Loading model from {model_name_or_path} ...")
+            # however, tensor parallel for running falcon will occur bugs
+
+            model, tokenizer = load(model_name_or_path)
+            enable_src(model, args.top_k, None, args.attn_type)
+
+            if tokenizer.pad_token_id is None:
+                if tokenizer.eos_token_id is not None:
+                    tokenizer.pad_token_id = tokenizer.eos_token_id
+                else:
+                    tokenizer.pad_token_id = 0
+
+            model.eval()
+
+            return model, tokenizer
+
+
+        args = parser.parse_args()
+
+        data = load_dataset("emozilla/pg19-test", split="test")
+
+        model, tokenizer = load_model(args.model_name_or_path, args)
+
+        nlls = []
+        loss_fn = CrossEntropyLoss(reduction="none")
+        past_key_values = None
+
+        os.makedirs(args.output_dir, exist_ok=True)
+        f = open(f"{args.output_dir}/log.txt", "w")
+
+        num_eval_tokens = 0
+        for text in data["text"][:1]:
+            encodings = tokenizer(text, return_tensors="pt")
+
+            print(encodings.input_ids[:, :10])
+
+            seq_len = encodings.input_ids.size(1)
+            print(f"seq_len: {seq_len}")
+            pbar = tqdm(range(0, seq_len - 1))
+
+            for idx in pbar:
+                input_ids = encodings.input_ids[:, idx : idx + 1].to(device)
+                with torch.no_grad():
+                    outputs = model(
+                        input_ids,
+                        past_key_values=past_key_values,
+                        use_cache=True,
+                    )
+                    logits = outputs.logits.view(-1, model.config.vocab_size)
+                    past_key_values = outputs.past_key_values
+                    label = encodings.input_ids[:, idx + 1 : idx + 2].to(logits.device).view(-1)
+                    neg_log_likelihood = loss_fn(logits, label)
+
+                nlls.append(neg_log_likelihood)
+                pbar.set_description(
+                    f"nll: {neg_log_likelihood.item():.2f}, ppl: {torch.exp(neg_log_likelihood).item():.2f}"
+                )
+                print(neg_log_likelihood.item(), file=f, flush=True)
+                num_eval_tokens += 1
+                if args.num_eval_tokens is not None and num_eval_tokens >= args.num_eval_tokens:
+                    break
+            if args.num_eval_tokens is not None and num_eval_tokens >= args.num_eval_tokens:
+                break
+
+        f.close()
+
+        ppl = torch.exp(torch.stack(nlls).mean())
+        print(ppl.item())
+        with open(f"{args.output_dir}/ppl.txt", "w") as f:
+            f.write(f"{ppl.item()}\n")
