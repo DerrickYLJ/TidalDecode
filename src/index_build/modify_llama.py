@@ -12,117 +12,6 @@ from transformers.models.llama.modeling_llama import (
 )
 from transformers.cache_utils import Cache, DynamicCache, StaticCache
 from transformers.modeling_flash_attention_utils import _flash_attention_forward
-import faiss
-import numpy as np
-
-
-class KeyValueIndexStore:
-    def __init__(self, res, dimension, num_kv_heads, top_k, layer_idx, sparse_layer_start):
-        self.dimension = dimension
-        self.num_kv_heads = num_kv_heads
-        self.sparse_layer_start = sparse_layer_start
-        # self.key_index_store = [
-        #     faiss.index_cpu_to_gpu(res, 0, index) for index in self.key_index_store
-        # ]
-        self.retrieve_dict = {i: {} for i in range(self.num_kv_heads)}
-        self.top_k = top_k
-        self.layer_idx = layer_idx
-        if self.layer_idx == sparse_layer_start or self.layer_idx == 15:
-            self.key_index_store = [
-                faiss.IndexFlatIP(dimension) for _ in range(num_kv_heads)  # on CPU
-            ]
-
-    def update_index_store(self, key_states):
-        if self.layer_idx == self.sparse_layer_start or self.layer_idx == 15:
-            bsz, num_kv_heads, q_len, head_dim = key_states.size()
-            if num_kv_heads != self.num_kv_heads:
-                raise ValueError(
-                    f"dimension of key_states when updating index store is wrong: should be {self.num_kv_heads} but got {num_kv_heads}"
-                )
-            for head in range(self.num_kv_heads):
-                index = self.key_index_store[head]
-                keys = key_states[:, head, :, :].reshape(-1, head_dim).numpy()
-                keys = np.ascontiguousarray(keys).astype(np.float32)
-                index.add(keys)
-
-    def batch_search_index_store(self, query_states, past_key_value, pos_dict):
-        if self.top_k is None:
-            raise ValueError("Top-k is None!")
-        
-        bsz, num_heads, q_len, head_dim = query_states.size()
-        self.kv_group_num = num_heads // self.num_kv_heads
-
-        if q_len > 1:
-            raise ValueError("Index Retrieval only supports generation!")
-
-        retrieved_k = []
-        retrieved_v = []
-        
-        # Perform batched retrieval for each key-value head
-        for i_index in range(self.num_kv_heads):
-            head_indices = np.arange(
-                i_index * self.kv_group_num, (i_index + 1) * self.kv_group_num
-            )
-            if len(pos_dict[i_index]) == 0:
-                # Gather queries for the current key-value head
-                queries = query_states[:, head_indices, :, :].reshape(-1, head_dim).numpy()
-                queries = np.ascontiguousarray(queries).astype(np.float32)
-
-                # Perform the batched search on the current index store
-                num_stored_vectors = self.key_index_store[i_index].ntotal
-                if num_stored_vectors < self.top_k:
-                    # Retrieve all stored vectors by setting k to num_stored_vectors
-                    _, I_k = self.key_index_store[i_index].search(queries, k=num_stored_vectors)
-                else:
-                    # Perform normal top-k retrieval
-                    _, I_k = self.key_index_store[i_index].search(queries, k=self.top_k)
-                
-                sorted_indices = np.argsort(I_k, axis=1)
-                sorted_I_k = np.take_along_axis(I_k, sorted_indices, axis=1)
-
-                # Convert indices to torch tensors
-                sorted_I_k = torch.from_numpy(sorted_I_k).long()
-
-                # Update the retrieve dictionary
-                for i in sorted_I_k[0, :].tolist():  
-                    self.retrieve_dict[i_index][i] = self.retrieve_dict[i_index].get(i, 0) + 1 
-
-                pos_dict[i_index] = sorted_I_k
-
-                num_vectors_to_retrieve = sorted_I_k.size(1)
-                keys_retrieved = (
-                    past_key_value.key_cache[self.layer_idx][:, i_index, :, :]
-                    .reshape(-1, head_dim)[sorted_I_k]
-                    .reshape(bsz, -1, num_vectors_to_retrieve, head_dim)
-                )
-                values_retrieved = (
-                    past_key_value.value_cache[self.layer_idx][:, i_index, :, :]
-                    .reshape(-1, head_dim)[sorted_I_k]
-                    .reshape(bsz, -1, num_vectors_to_retrieve, head_dim)
-                )
-            else:
-                sorted_I_k = pos_dict[i_index]
-                num_vectors_to_retrieve = sorted_I_k.size(1)
-
-                keys_retrieved = (
-                    past_key_value.key_cache[self.layer_idx][:, i_index, :, :]
-                    .reshape(-1, head_dim)[sorted_I_k]
-                    .reshape(bsz, -1, num_vectors_to_retrieve, head_dim)
-                )
-                values_retrieved = (
-                    past_key_value.value_cache[self.layer_idx][:, i_index, :, :]
-                    .reshape(-1, head_dim)[sorted_I_k]
-                    .reshape(bsz, -1, num_vectors_to_retrieve, head_dim)
-                )
-
-            retrieved_k.append(keys_retrieved)
-            retrieved_v.append(values_retrieved)
-
-        retrieved_k = torch.cat(retrieved_k, dim=1)
-        retrieved_v = torch.cat(retrieved_v, dim=1)
-
-        return (retrieved_k, retrieved_v)
-
 
 
 def llama_index_build_attention_forward(
@@ -141,7 +30,15 @@ def llama_index_build_attention_forward(
     res=None,
     **kwargs,
 ):
+    # prefilling: as full-weight attention
+    # generation: 
+    # - non-sparse layers: full-weight attention
+    # - sparse_layer_start: full-weight attention + top_k selection
+    # - sattn_layer_start -> correction layer - 1: use the same top-k
+    # - correction layer: full-weight attention + new top_k selection
+    # - after correction layer: use the same top-k
     sparse_layer_start = 2
+    correction_layer = 9
     if output_attentions:
         return super().forward(
             hidden_states=hidden_states,
@@ -182,24 +79,12 @@ def llama_index_build_attention_forward(
             key_states, value_states, self.layer_idx, cache_kwargs
         )
     kv_seq_len = past_key_value.get_seq_length(self.layer_idx)
-    if self.layer_idx >= sparse_layer_start:
-        key_states_cpu = key_states.cpu()
-        if q_len != kv_seq_len:
-            # pass prefilling phase
-            query_states_cpu = query_states.cpu()
-            self.kv_index_store.update_index_store(key_states_cpu[:, :, [-1], :])
-            key_states, value_states = self.kv_index_store.batch_search_index_store(
-                query_states_cpu, past_key_value, self.pos_dict
-            )
-        else:
-            self.kv_index_store = KeyValueIndexStore(
-                res, self.head_dim, self.num_key_value_heads, top_k, self.layer_idx, sparse_layer_start
-            )
-            self.kv_index_store.update_index_store(key_states_cpu)
 
+
+    key_states = repeat_kv(key_states, self.num_key_value_groups)
+    value_states = repeat_kv(value_states, self.num_key_value_groups)
     if self.layer_idx < sparse_layer_start or q_len == kv_seq_len:
-        key_states = repeat_kv(key_states, self.num_key_value_groups)
-        value_states = repeat_kv(value_states, self.num_key_value_groups)
+        # non-sparse layers or prefilling 
         causal_mask = attention_mask
         if attention_mask is not None:
             causal_mask = causal_mask[:, :, :, : key_states.shape[-2]]
@@ -218,12 +103,36 @@ def llama_index_build_attention_forward(
         attn_output = self.o_proj(attn_output)
         return attn_output, None, past_key_value
     else:
+        # generation
         attn_weights = torch.matmul(
             query_states, key_states.transpose(2, 3)
         ) / math.sqrt(self.head_dim)
         if attention_mask is not None:
             causal_mask = attention_mask[:, :, :, : key_states.shape[-2]]
             attn_weights = attn_weights + causal_mask
+
+ 
+        last_dim_size = attn_weights.size(-1)
+        token_budget = min(last_dim_size, top_k)
+
+        if self.layer_idx == sparse_layer_start or self.layer_idx == correction_layer:
+            # extract top_k mask
+            if self.pos_dict != None:
+                raise ValueError("pos dict shouldn't be set up in the starting sparse attn layer"
+                )
+            _, top_k_indices = torch.topk(attn_weights, k=token_budget, dim=-1)
+            top_k_mask = torch.zeros_like(attn_weights).scatter_(-1, top_k_indices, 1.0)
+            self.pos_dict = top_k_mask # store top_k mask
+            top_k_union = set(top_k_indices.flatten().tolist())
+            print("d", self.layer_idx, len(top_k_union), top_k)
+        else:
+            # apply top_k mask
+            if self.pos_dict == None:
+                raise ValueError("pos dict should be set up in sparse attn layers"
+                )
+            min_value = torch.finfo(attn_weights.dtype).min
+            attn_weights = attn_weights.masked_fill(self.pos_dict.to(attn_weights.device) == 0, min_value)
+            print("s", self.layer_idx,  torch.sum(self.pos_dict, dim=1))
 
         attn_weights = nn.functional.softmax(
             attn_weights, dim=-1, dtype=torch.float32
@@ -243,7 +152,6 @@ def llama_index_build_attention_forward(
 
         if not output_attentions:
             attn_weights = None
-        
         return attn_output, attn_weights, past_key_value
 
 
