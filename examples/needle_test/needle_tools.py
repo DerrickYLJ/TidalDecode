@@ -20,7 +20,6 @@ from torch.utils.checkpoint import checkpoint
 from src.utils import load, download_url, load_jsonl
 from src.enabling_index import enable_src
 
-from mpi4py import MPI
 
 # from vllm import LLM, SamplingParams
 
@@ -206,10 +205,9 @@ class LLMNeedleHaystackTester:
             print(self.context_lengths)
             self.context_lengths = self.context_lengths[int(start) : int(end)]
             print(self.context_lengths)
-        self.comm = config.comm
-        self.model, self.tokenizer = load(config.model_name, self.comm)
+        self.model, self.tokenizer = load(config.model_name)
         print(self.model)
-        enable_src(self.model, config.top_k, self.comm, config.attn_type, config.sparse_layer_start, config.correction_layer)
+        enable_src(self.model, config.top_k, config.attn_type, config.sparse_layer_start, config.correction_layer)
         self.generation_config = GenerationConfig(
             max_new_tokens=32,
             pad_token_id=(
@@ -363,90 +361,95 @@ class LLMNeedleHaystackTester:
             self.tokenizer.encode(full_context) for full_context in tqdm(full_contexts)
         ]
 
-        correct_cnt = 0
-        total_cnt = 0
+        
         start = time.time()
-        for context_length in self.context_lengths:
-            torch.cuda.empty_cache()
-            trim_contexts = [
-                self.tokenizer.decode(full_token[:context_length])
-                for full_token in tqdm(full_tokens)
-            ]
-            contexts = []
-            for depth_percent in self.document_depth_percents:
-                for i in range(self.config.n_rounds):
-                    random_city = random.choice(
-                        LLMNeedleHaystackTester.RANDOM_NEEDLE_CITIES
-                    )
-                    insert_needle = True
-                    needle_rnd_number = str(
-                        self.generate_random_number(self.rnd_number_digits)
-                    )
-                    print("context length: " + str(context_length))
-                    print("depth_percent : " + str(depth_percent))
-                    context = self.create_contexts(
-                        needle_rnd_number,
-                        insert_needle,
-                        random_city,
-                        trim_contexts[i],
-                        context_length,
-                        depth_percent,
-                        i,
-                    )
-                    contexts.append(context)
+        correction_layer_set = {14, 18, 21, 23, 24, 27, 28, 30, 31, 32, 33, 35, 36, 38}
+        
+        for correction_layer in range(64):
+            correct_cnt = 0
+            total_cnt = 0
+            if correction_layer not in correction_layer_set:
+                continue
+            enable_src(self.model, self.config.top_k, self.config.attn_type, self.config.sparse_layer_start, correction_layer)
+            for context_length in self.context_lengths:
+                torch.cuda.empty_cache()
+                trim_contexts = [
+                    self.tokenizer.decode(full_token[:context_length])
+                    for full_token in tqdm(full_tokens)
+                ]
+                contexts = []
+                for depth_percent in self.document_depth_percents:
+                    for i in range(self.config.n_rounds):
+                        random_city = random.choice(
+                            LLMNeedleHaystackTester.RANDOM_NEEDLE_CITIES
+                        )
+                        insert_needle = True
+                        needle_rnd_number = str(
+                            self.generate_random_number(self.rnd_number_digits)
+                        )
+                        print("context length: " + str(context_length))
+                        print("depth_percent : " + str(depth_percent))
+                        context = self.create_contexts(
+                            needle_rnd_number,
+                            insert_needle,
+                            random_city,
+                            trim_contexts[i],
+                            context_length,
+                            depth_percent,
+                            i,
+                        )
+                        contexts.append(context)
 
-            for _, context in enumerate(tqdm(contexts)):
-                depth = int(context["depth_percent"])
-                length = context["context_length"]
+                for _, context in enumerate(tqdm(contexts)):
+                    depth = int(context["depth_percent"])
+                    length = context["context_length"]
 
-                prompt = template.format(
-                    context=context["context"], question=context["question"]
-                )
-                input_tensor = self.tokenizer(
-                    prompt, return_tensors="pt", return_attention_mask=False
-                )
-                with torch.no_grad():
-                    outs = self.model.generate(
-                        **input_tensor,
-                        generation_config=self.generation_config,
-                        do_sample=False,
+                    prompt = template.format(
+                        context=context["context"], question=context["question"]
                     )
-                new_tokens = outs[0, input_tensor["input_ids"].shape[-1] :]
-                out = self.tokenizer.decode(new_tokens, skip_special_tokens=True)
-                init = time.time()
-                results.append(
-                    {
-                        "context_length": context["context_length"],
-                        "depth_percent": context["depth_percent"],
-                        "response": out,
-                        "answer": context["needle_rnd_number"],
-                        "correct": context["needle_rnd_number"] in out,
-                        "seed": context["seed"],
-                    }
-                )
-                correct = context["needle_rnd_number"] in out
-                correct_cnt = correct_cnt+1 if correct else correct_cnt
-                total_cnt += 1
-                # print(
-                #     f"depth: {depth/100}; len: {length}; inserted_pos: {int(depth*length//100)}: correct: {correct}", flush=True
-                # )
-                # print("output: ", out)
-                # Create all-zero numpy array to scatter
-                # TODO; more fine-grained size
-                zero_array = np.zeros((1, 8, 1, 128), dtype=np.float32)
-                if self.comm != None:
-                    self.comm.Scatter(zero_array, None, root=0)
-                excluded_time = (
-                    time.time() - init
-                    if excluded_time == None
-                    else excluded_time + time.time() - init
-                )
-            with open(self.config.output_file, "w") as f:
-                json.dump(results, f)
-        print("elapsed", time.time() - start - excluded_time)
-        print("done")
-        print(f"Saved results to {self.config.output_file}")
-        print("correctness rate: ", correct_cnt/total_cnt)
+                    input_tensor = self.tokenizer(
+                        prompt, return_tensors="pt", return_attention_mask=False
+                    )
+                    with torch.no_grad():
+                        outs = self.model.generate(
+                            **input_tensor,
+                            generation_config=self.generation_config,
+                            do_sample=False,
+                        )
+                    new_tokens = outs[0, input_tensor["input_ids"].shape[-1] :]
+                    out = self.tokenizer.decode(new_tokens, skip_special_tokens=True)
+                    init = time.time()
+                    results.append(
+                        {
+                            "context_length": context["context_length"],
+                            "depth_percent": context["depth_percent"],
+                            "response": out,
+                            "answer": context["needle_rnd_number"],
+                            "correct": context["needle_rnd_number"] in out,
+                            "seed": context["seed"],
+                        }
+                    )
+                    correct = context["needle_rnd_number"] in out
+                    correct_cnt = correct_cnt+1 if correct else correct_cnt
+                    total_cnt += 1
+                    # print(
+                    #     f"depth: {depth/100}; len: {length}; inserted_pos: {int(depth*length//100)}: correct: {correct}", flush=True
+                    # )
+                    # print("output: ", out)
+                    # Create all-zero numpy array to scatter
+                    # TODO; more fine-grained size
+                    zero_array = np.zeros((1, 8, 1, 128), dtype=np.float32)
+                    excluded_time = (
+                        time.time() - init
+                        if excluded_time == None
+                        else excluded_time + time.time() - init
+                    )
+                with open(self.config.output_file, "w") as f:
+                    json.dump(results, f)
+            print("elapsed", time.time() - start - excluded_time)
+            print("done")
+            # print(f"Saved results to {self.config.output_file}")
+            print(f"correction_layer: {correction_layer}; top_k: {self.config.top_k}; correctness rate: {correct_cnt/total_cnt}")
 
     def print_start_test_summary(self):
         print("\n")

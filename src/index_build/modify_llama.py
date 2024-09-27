@@ -351,11 +351,11 @@ def llama_quest_attention_forward(
 
 
 
-def enable_llama_index_build_attention(model, top_k, comm=None, attn_type="index", sparse_layer_start=2, correction_layer=9):
+def enable_llama_index_build_attention(model, top_k, attn_type="index", sparse_layer_start=2, correction_layer=9):
     # pos_dict: kv_head -> indices
     # res = faiss.StandardGpuResources() if res is None else res
     res = None
-    print("top_k", top_k, attn_type)
+
 
     def wrap_forward(module):
         
@@ -418,14 +418,14 @@ def enable_llama_index_build_attention(model, top_k, comm=None, attn_type="index
 
         module.flash_forward = module.forward
         if attn_type == "index":
-            print("ours")
+            
             module.forward = new_index_forward
         else:
-            print("quest")
+
             module.forward = new_quest_forward
 
     for name, module in reversed(model._modules.items()):
         if len(list(module.children())) > 0:
-            enable_llama_index_build_attention(module, top_k, comm, attn_type, sparse_layer_start, correction_layer)
+            enable_llama_index_build_attention(module, top_k, attn_type, sparse_layer_start, correction_layer)
         if isinstance(module, LlamaAttention):
             wrap_forward(module)

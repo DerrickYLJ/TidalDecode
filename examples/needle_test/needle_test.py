@@ -10,8 +10,6 @@ from needle_tools import LLMNeedleHaystackTester
 from needle_viz import plot_needle_viz
 
 from examples.needle_test.index_example import warm_up
-from mpi4py import MPI
-
 
 @dataclass
 class Config:
@@ -33,7 +31,6 @@ class Config:
     trust_remote_code: bool = False
     kv_cache_cpu_device: str = "cpu"
     top_k: int = None
-    comm: MPI.Comm = None  # MPI communicator
     sparse_layer_start: int =2
     correction_layer: int =9
 
@@ -64,7 +61,6 @@ def main(
     use_mpi: bool = False,
 ):
     print(f"top_k: {top_k}; sparse_layer_start: {sparse_layer_start}; correction_layer: {correction_layer}")
-    comm = MPI.COMM_WORLD if use_mpi else None
     config = Config(
         model_name=model_name,
         run_name=run_name,
@@ -81,29 +77,27 @@ def main(
         top_k=top_k,
         sparse_layer_start=sparse_layer_start,
         correction_layer=correction_layer,
-        comm=comm,
     )
     kwargs = {
         "swap_space": 64,
         "gpu_memory_utilization": 0.98,
     }
     ht = LLMNeedleHaystackTester(config, **kwargs if config.attn_type == "vllm" else {})
-    if not use_mpi or comm.Get_rank() == 0:
-        ht.start_test()
+    ht.start_test()
 
-        print("making plot...")
-        plot_needle_viz(
-            config.output_file,
-            (
-                config.model_name.replace("/", "-") + f"_{config.run_name}"
-                if config.run_name is not None
-                else ""
-            ),
-            config.context_lengths_min,
-            config.context_lengths_max,
-            mode=attn_type,
-            output_path=config.output_path,
-        )
+    print("making plot...")
+    plot_needle_viz(
+        config.output_file,
+        (
+            config.model_name.replace("/", "-") + f"_{config.run_name}"
+            if config.run_name is not None
+            else ""
+        ),
+        config.context_lengths_min,
+        config.context_lengths_max,
+        mode=attn_type,
+        output_path=config.output_path,
+    )
 
 
 if __name__ == "__main__":

@@ -1,24 +1,13 @@
-from mpi4py import MPI
-
-
-def enable_src(model, top_k, comm, attn_type, sparse_layer_start, correction_layer):
+def enable_src(model, top_k, attn_type, sparse_layer_start, correction_layer):
     # Broadcast model.config.model_type to all ranks
-    if comm != None:
-        model_type = model.config.model_type if comm.Get_rank() == 0 else None
-        model_type = comm.bcast(model_type, root=0)
-    else:
-        model_type = model.config.model_type
+   
+    model_type = model.config.model_type
     if "llama" in model_type:
         k_seq_dim = v_seq_dim = 2
-        if comm != None:
-            from src.index_build.modify_llama_mpi import (
-                enable_llama_index_build_attention,
-            )
-        else:
-            from src.index_build.modify_llama import (
-                enable_llama_index_build_attention,
-            )
-        enable_llama_index_build_attention(model, top_k, comm, attn_type, sparse_layer_start, correction_layer)
+        from src.index_build.modify_llama import (
+            enable_llama_index_build_attention,
+        )
+        enable_llama_index_build_attention(model, top_k, attn_type, sparse_layer_start, correction_layer)
     elif "mpt" in model_type:
         v_seq_dim = 2
         k_seq_dim = 3
