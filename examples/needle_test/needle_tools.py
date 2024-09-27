@@ -209,7 +209,7 @@ class LLMNeedleHaystackTester:
         self.comm = config.comm
         self.model, self.tokenizer = load(config.model_name, self.comm)
         print(self.model)
-        enable_src(self.model, config.top_k, self.comm, config.attn_type)
+        enable_src(self.model, config.top_k, self.comm, config.attn_type, config.sparse_layer_start, config.correction_layer)
         self.generation_config = GenerationConfig(
             max_new_tokens=32,
             pad_token_id=(
@@ -427,10 +427,10 @@ class LLMNeedleHaystackTester:
                 correct = context["needle_rnd_number"] in out
                 correct_cnt = correct_cnt+1 if correct else correct_cnt
                 total_cnt += 1
-                print(
-                    f"depth: {depth/100}; len: {length}; inserted_pos: {int(depth*length//100)}: correct: {correct}", flush=True
-                )
-                print("output: ", out)
+                # print(
+                #     f"depth: {depth/100}; len: {length}; inserted_pos: {int(depth*length//100)}: correct: {correct}", flush=True
+                # )
+                # print("output: ", out)
                 # Create all-zero numpy array to scatter
                 # TODO; more fine-grained size
                 zero_array = np.zeros((1, 8, 1, 128), dtype=np.float32)

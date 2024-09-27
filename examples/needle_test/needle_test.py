@@ -34,6 +34,8 @@ class Config:
     kv_cache_cpu_device: str = "cpu"
     top_k: int = None
     comm: MPI.Comm = None  # MPI communicator
+    sparse_layer_start: int =2
+    correction_layer: int =9
 
     def __post_init__(self):
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -57,9 +59,11 @@ def main(
     trust_remote_code: bool = False,
     kv_cache_cpu_device: str = "cpu",
     top_k: int = None,
+    sparse_layer_start=2,
+    correction_layer=9,
     use_mpi: bool = False,
 ):
-    print(f"top_k: {top_k}")
+    print(f"top_k: {top_k}; sparse_layer_start: {sparse_layer_start}; correction_layer: {correction_layer}")
     comm = MPI.COMM_WORLD if use_mpi else None
     config = Config(
         model_name=model_name,
@@ -75,6 +79,8 @@ def main(
         trust_remote_code=trust_remote_code,
         kv_cache_cpu_device=kv_cache_cpu_device,
         top_k=top_k,
+        sparse_layer_start=sparse_layer_start,
+        correction_layer=correction_layer,
         comm=comm,
     )
     kwargs = {
@@ -116,6 +122,8 @@ if __name__ == "__main__":
         )
 
         args.add_argument("--top_k", type=int, default=None)
+        args.add_argument("--sparse_layer_start", type=int, default=2)
+        args.add_argument("--correction_layer", type=int, default=13)
         args.add_argument("--output_path", type=str, default="results/needle/")
         args.add_argument("--pattern_path", type=str, default=None)
         args.add_argument("--rounds", type=int, default=3)
@@ -150,6 +158,8 @@ if __name__ == "__main__":
             trust_remote_code=args.trust_remote_code,
             kv_cache_cpu_device=args.kv_cache_cpu_device,
             top_k=args.top_k,
+            sparse_layer_start=args.sparse_layer_start,
+            correction_layer=args.correction_layer,
             use_mpi=args.use_mpi,
         )
     else:
@@ -198,6 +208,8 @@ if __name__ == "__main__":
         parser.add_argument("--length-step", type=int, default=128)
         parser.add_argument("--iterations", type=int, default=20)
         parser.add_argument("--output_dir", type=str)
+        parser.add_argument("--sparse_layer_start", type=int, default=2)
+        parser.add_argument("--correction_layer", type=int, default=9)
 
         parser.add_argument("--num_eval_tokens", type=int, default=None)
 
@@ -219,7 +231,7 @@ if __name__ == "__main__":
             # however, tensor parallel for running falcon will occur bugs
 
             model, tokenizer = load(model_name_or_path)
-            enable_src(model, args.top_k, None, args.attn_type)
+            enable_src(model, args.top_k, None, args.attn_type, args.sparse_layer_start, args.correction_layer)
 
             if tokenizer.pad_token_id is None:
                 if tokenizer.eos_token_id is not None:
