@@ -21,9 +21,6 @@ from src.utils import load, download_url, load_jsonl
 from src.enabling_index import enable_src
 
 
-# from vllm import LLM, SamplingParams
-
-# from minference import MInference
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 
 
@@ -207,7 +204,13 @@ class LLMNeedleHaystackTester:
             print(self.context_lengths)
         self.model, self.tokenizer = load(config.model_name)
         print(self.model)
-        enable_src(self.model, config.top_k, config.attn_type, config.sparse_layer_start, config.correction_layer)
+        enable_src(
+            self.model,
+            config.top_k,
+            config.attn_type,
+            config.sparse_layer_start,
+            config.correction_layer,
+        )
         self.generation_config = GenerationConfig(
             max_new_tokens=32,
             pad_token_id=(
@@ -361,16 +364,21 @@ class LLMNeedleHaystackTester:
             self.tokenizer.encode(full_context) for full_context in tqdm(full_contexts)
         ]
 
-        
         start = time.time()
         correction_layer_set = {14, 18, 21, 23, 24, 27, 28, 30, 31, 32, 33, 35, 36, 38}
-        
+
         for correction_layer in range(64):
             correct_cnt = 0
             total_cnt = 0
             if correction_layer not in correction_layer_set:
                 continue
-            enable_src(self.model, self.config.top_k, self.config.attn_type, self.config.sparse_layer_start, correction_layer)
+            enable_src(
+                self.model,
+                self.config.top_k,
+                self.config.attn_type,
+                self.config.sparse_layer_start,
+                correction_layer,
+            )
             for context_length in self.context_lengths:
                 torch.cuda.empty_cache()
                 trim_contexts = [
@@ -430,7 +438,7 @@ class LLMNeedleHaystackTester:
                         }
                     )
                     correct = context["needle_rnd_number"] in out
-                    correct_cnt = correct_cnt+1 if correct else correct_cnt
+                    correct_cnt = correct_cnt + 1 if correct else correct_cnt
                     total_cnt += 1
                     # print(
                     #     f"depth: {depth/100}; len: {length}; inserted_pos: {int(depth*length//100)}: correct: {correct}", flush=True
@@ -449,7 +457,9 @@ class LLMNeedleHaystackTester:
             print("elapsed", time.time() - start - excluded_time)
             print("done")
             # print(f"Saved results to {self.config.output_file}")
-            print(f"correction_layer: {correction_layer}; top_k: {self.config.top_k}; correctness rate: {correct_cnt/total_cnt}")
+            print(
+                f"correction_layer: {correction_layer}; top_k: {self.config.top_k}; correctness rate: {correct_cnt/total_cnt}"
+            )
 
     def print_start_test_summary(self):
         print("\n")

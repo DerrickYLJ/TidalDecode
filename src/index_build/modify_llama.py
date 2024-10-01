@@ -23,19 +23,17 @@ def llama_index_build_attention_forward(
     output_attentions: bool = False,
     use_cache: bool = False,
     cache_position: Optional[torch.LongTensor] = None,
-    position_embeddings: Optional[
-        Tuple[torch.Tensor, torch.Tensor]
-    ] = None,  
+    position_embeddings: Optional[Tuple[torch.Tensor, torch.Tensor]] = None,
     top_k: int = None,
-    sparse_layer_start=2, 
+    sparse_layer_start=2,
     correction_layer=9,
     **kwargs,
 ):
     # prefilling: as full-weight attention
-    # generation: 
+    # generation:
     # - non-sparse layers: full-weight attention #1
     # - sparse_layer_start: full-weight attention + top_k selection #2          topk: (1, 32, 1, topk) => fold (1, 32, topk)
-    # - sattn_layer_start -> correction layer - 1: use the same top-k #3        Q: (1, 32, 1, 128) K: (1, 32, topk, 128) 
+    # - sattn_layer_start -> correction layer - 1: use the same top-k #3        Q: (1, 32, 1, 128) K: (1, 32, topk, 128)
     # - correction layer: full-weight attention + new top_k selection
     # - after correction layer: use the same top-k
     if output_attentions:
@@ -79,11 +77,10 @@ def llama_index_build_attention_forward(
         )
     kv_seq_len = past_key_value.get_seq_length(self.layer_idx)
 
-
     key_states = repeat_kv(key_states, self.num_key_value_groups)
     value_states = repeat_kv(value_states, self.num_key_value_groups)
     if self.layer_idx < sparse_layer_start or q_len == kv_seq_len:
-        # non-sparse layers or prefilling 
+        # non-sparse layers or prefilling
         causal_mask = attention_mask
         if attention_mask is not None:
             causal_mask = causal_mask[:, :, :, : key_states.shape[-2]]
@@ -110,7 +107,6 @@ def llama_index_build_attention_forward(
             causal_mask = attention_mask[:, :, :, : key_states.shape[-2]]
             attn_weights = attn_weights + causal_mask
 
- 
         last_dim_size = attn_weights.size(-1)
         token_budget = min(last_dim_size, top_k)
 
@@ -119,14 +115,15 @@ def llama_index_build_attention_forward(
             # extract top_k mask
             _, top_k_indices = torch.topk(attn_weights, k=token_budget, dim=-1)
             top_k_mask = torch.zeros_like(attn_weights).scatter_(-1, top_k_indices, 1.0)
-            self.pos_dict = top_k_mask # store top_k mask
+            self.pos_dict = top_k_mask  # store top_k mask
         else:
             # apply top_k mask
             if self.pos_dict == None:
-                raise ValueError("pos dict should be set up in sparse attn layers"
-                )
+                raise ValueError("pos dict should be set up in sparse attn layers")
             min_value = torch.finfo(attn_weights.dtype).min
-            attn_weights = attn_weights.masked_fill(self.pos_dict.to(attn_weights.device) == 0, min_value)
+            attn_weights = attn_weights.masked_fill(
+                self.pos_dict.to(attn_weights.device) == 0, min_value
+            )
 
         attn_weights = nn.functional.softmax(
             attn_weights, dim=-1, dtype=torch.float32
@@ -197,6 +194,7 @@ def local_heavy_hitter_mask(attn_weights, token_budget, chunk_size):
 
     return mask_bottom
 
+
 def llama_quest_attention_forward(
     self,
     hidden_states: torch.Tensor,
@@ -206,7 +204,9 @@ def llama_quest_attention_forward(
     output_attentions: bool = False,
     use_cache: bool = False,
     cache_position: Optional[torch.LongTensor] = None,
-    position_embeddings: Optional[Tuple[torch.Tensor, torch.Tensor]] = None,  # will become mandatory in v4.45
+    position_embeddings: Optional[
+        Tuple[torch.Tensor, torch.Tensor]
+    ] = None,  # will become mandatory in v4.45
     top_k: int = None,
     **kwargs,
 ):
@@ -214,7 +214,7 @@ def llama_quest_attention_forward(
     self.token_budget = top_k
     bsz, q_len, _ = hidden_states.size()
 
-    if q_len > 1 or self.layer_idx < 2: # TODO: should be self.layer_idx < 2
+    if q_len > 1 or self.layer_idx < 2:  # TODO: should be self.layer_idx < 2
         return self.flash_forward(
             hidden_states,
             attention_mask,
@@ -246,7 +246,9 @@ def llama_quest_attention_forward(
 
     if past_key_value is not None:
         cache_kwargs = {"sin": sin, "cos": cos}
-        key_states, value_states = past_key_value.update(key_states, value_states, self.layer_idx, cache_kwargs)
+        key_states, value_states = past_key_value.update(
+            key_states, value_states, self.layer_idx, cache_kwargs
+        )
     kv_seq_len = key_states.size(2)
     key_states = repeat_kv(key_states, self.num_key_value_groups)
     value_states = repeat_kv(value_states, self.num_key_value_groups)
@@ -350,15 +352,15 @@ def llama_quest_attention_forward(
     return attn_output, attn_weights, past_key_value
 
 
-
-def enable_llama_index_build_attention(model, top_k, attn_type="index", sparse_layer_start=2, correction_layer=9):
+def enable_llama_index_build_attention(
+    model, top_k, attn_type="index", sparse_layer_start=2, correction_layer=9
+):
     # pos_dict: kv_head -> indices
     # res = faiss.StandardGpuResources() if res is None else res
     res = None
 
-
     def wrap_forward(module):
-        
+
         def new_index_forward(
             hidden_states,
             attention_mask=None,
@@ -369,10 +371,10 @@ def enable_llama_index_build_attention(model, top_k, attn_type="index", sparse_l
             cache_position=None,
             position_embeddings=None,
             top_k=top_k,
-            sparse_layer_start=sparse_layer_start, 
+            sparse_layer_start=sparse_layer_start,
             correction_layer=correction_layer,
             **kwargs,
-        ):  
+        ):
             return llama_index_build_attention_forward(
                 module,
                 hidden_states,
@@ -384,11 +386,11 @@ def enable_llama_index_build_attention(model, top_k, attn_type="index", sparse_l
                 cache_position,
                 position_embeddings,
                 top_k=top_k,
-                sparse_layer_start=sparse_layer_start, 
+                sparse_layer_start=sparse_layer_start,
                 correction_layer=correction_layer,
                 **kwargs,
-                )
-        
+            )
+
         def new_quest_forward(
             hidden_states,
             attention_mask=None,
@@ -400,7 +402,7 @@ def enable_llama_index_build_attention(model, top_k, attn_type="index", sparse_l
             position_embeddings=None,
             top_k=top_k,
             **kwargs,
-        ):  
+        ):
             return llama_quest_attention_forward(
                 module,
                 hidden_states,
@@ -413,12 +415,11 @@ def enable_llama_index_build_attention(model, top_k, attn_type="index", sparse_l
                 position_embeddings,
                 top_k=top_k,
                 **kwargs,
-                )
-            
+            )
 
         module.flash_forward = module.forward
         if attn_type == "index":
-            
+
             module.forward = new_index_forward
         else:
 
@@ -426,6 +427,8 @@ def enable_llama_index_build_attention(model, top_k, attn_type="index", sparse_l
 
     for name, module in reversed(model._modules.items()):
         if len(list(module.children())) > 0:
-            enable_llama_index_build_attention(module, top_k, attn_type, sparse_layer_start, correction_layer)
+            enable_llama_index_build_attention(
+                module, top_k, attn_type, sparse_layer_start, correction_layer
+            )
         if isinstance(module, LlamaAttention):
             wrap_forward(module)
