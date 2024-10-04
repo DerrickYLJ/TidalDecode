@@ -1,67 +1,34 @@
-### TidalDecode
+### Sparse Attention using Index Store
 
-Environment Setup:
+Environment Setup (python version = 3.8):
 
-## Installation
-1. Clone the submodules
 ```
-git submodule update --init --recursive
-```
-2. Install dependency libraries
-```
-conda create -yn tidal python=3.10
-conda activate tidal
-pip install -e . && pip install flash-attn==2.3.0 --no-build-isolation
+pip install torch torchvision torchaudio
+pip install transformers==4.33.0 accelerate datasets evaluate wandb scikit-learn scipy sentencepiece
 
-# Install CMake (with version >= 3.26.4)
-conda install cmake
-
-# build libraft
-cd kernels/3rdparty/raft
-./build.sh libraft
-```
-3. Build end-to-end operators with PyBind
-```
-# This will automatically build and link the operators
-cd quest/ops
-bash setup.sh
+python setup.py develop
 ```
 
-## Small Demo
 Run example:
 
 ```
-python examples/run_index_llama.py  --top_k 256 --model_name gradientai/Llama-3-8B-Instruct-Gradient-1048k
+python examples/run_index_llama.py  --top_k 256 --model_name gradientai/Llama-3-8B-Instruct-Gradient-1048k # top-k retrieval
 ```
 
-## Performance Evaluation
 Run Needle-in-the-Haystack:
 
 ```
-bash experiments/needle_test/run_needle_test.sh
+bash examples/needle_test/run_needle_test.sh
 ```
 
 Run perplexity:
 
 ```
-bash experiments/ppl/run_ppl.sh
+bash examples/ppl/run_ppl.sh
 ```
 
 Run LongBench:
 
 ```
-bash experiments/LongBench/run_longbench.sh
+bash examples/LongBench/run_longbench.sh
 ```
-
-
-## Efficiency Evaluation
-Kernels and end-to-end effiency are evaluated on A100 GPU with CUDA version of 12.2.
-
-### End-to-end Efficiency
-
-To reproduce the end-to-end efficiency results in Figure.10, please execute:
-```
-cd scripts
-bash bench_efficiency_e2e.sh
-```
-
