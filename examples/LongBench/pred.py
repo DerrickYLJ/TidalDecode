@@ -14,7 +14,6 @@ import numpy as np
 import random
 import argparse
 from src.utils import load, download_url, load_jsonl
-from src.enabling_index import enable_src
 
 
 def parse_args(args=None):
@@ -22,7 +21,7 @@ def parse_args(args=None):
     parser.add_argument(
         "--attn_type",
         type=str,
-        choices=["index", "quest"],
+        choices=["tidal"],
         default=None,
     )
     parser.add_argument("--model", type=str)
@@ -204,16 +203,9 @@ def seed_everything(seed):
 
 def load_model_and_tokenizer(model_name, device, args):
     # support Llama3
-    model, tokenizer = load(model_name)
-    model = model.eval()
-    if args.attn_type == "quest" or args.attn_type == "index":
-        enable_src(
-            model,
-            args.top_k,
-            args.attn_type,
-            args.sparse_layer_start,
-            args.correction_layer,
-        )
+    model, tokenizer = load(model_name, args.attn_type, top_k=args.top_k,
+            sparse_layer_start=args.sparse_layer_start,
+            correction_layer=args.correction_layer)
 
     return model, tokenizer
 
@@ -270,7 +262,7 @@ if __name__ == "__main__":
             if not os.path.exists(f"pred/{model_name}"):
                 os.makedirs(f"pred/{model_name}")
             if args.attn_type:
-                out_path = f"pred/{model_name}/{dataset}-{args.attn_type}-{args.top_k}.jsonl"  # index
+                out_path = f"pred/{model_name}/{dataset}-{args.attn_type}-{args.top_k}.jsonl"  # tidal
             else:
                 out_path = f"pred/{model_name}/{dataset}.jsonl"  # full
         prompt_format = dataset2prompt[dataset]
@@ -278,8 +270,6 @@ if __name__ == "__main__":
         print(f"task: {dataset}")
         if dataset == "narrativeqa":
             max_length = 28000
-        else:
-            max_length = 96000
         print(f"max_length: {max_length}")
         preds = get_pred(
             model,

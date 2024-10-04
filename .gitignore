@@ -135,3 +135,6 @@ attn_plot/
 data/
 needle/
 results/
+examples/LongBench/pred/
+examples/LongBench/pred_e/
+examples/LongBench/longbench_logs/
