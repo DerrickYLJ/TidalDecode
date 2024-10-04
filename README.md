@@ -38,19 +38,19 @@ python examples/run_index_llama.py  --top_k 256 --model_name gradientai/Llama-3-
 Run Needle-in-the-Haystack:
 
 ```
-bash examples/needle_test/run_needle_test.sh
+bash experiments/needle_test/run_needle_test.sh
 ```
 
 Run perplexity:
 
 ```
-bash examples/ppl/run_ppl.sh
+bash experiments/ppl/run_ppl.sh
 ```
 
 Run LongBench:
 
 ```
-bash examples/LongBench/run_longbench.sh
+bash experiments/LongBench/run_longbench.sh
 ```
 
 
