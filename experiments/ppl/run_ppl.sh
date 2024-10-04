@@ -4,7 +4,7 @@ TOP_K=4096
 OUTPUT_DIR=results/ppl/${TOP_K}_${EVAL_TOKEN}/
 mkdir -p $OUTPUT_DIR
 
-nohup python -u examples/ppl/ppl.py \
+nohup python -u experiments/ppl/ppl.py \
     --model_name_or_path $MODELPATH \
     --output_dir $OUTPUT_DIR \
     --num_eval_tokens $EVAL_TOKEN \

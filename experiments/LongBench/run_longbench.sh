@@ -1,4 +1,4 @@
-cd examples/LongBench
+cd experiments/LongBench
 
 export CUDA_VISIBLE_DEVICES=0,1,2,3
 

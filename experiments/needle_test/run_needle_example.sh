@@ -20,7 +20,7 @@ RESULT_FILE="results/needle/needle_${TOP_K}_${ATTN_TYPE}.out"
 echo "Running with --correction_layer ${CORRECTION_LAYER} ${TOP_K}"
   
 # Run the needle_test.py command with the current correction_layer
-nohup python examples/needle_test/needle_test.py \
+nohup python experiments/needle_test/needle_test.py \
     --model_name ${MODEL_NAME} \
     --max_length ${MAX_LENGTH} \
     --min_length ${MIN_LENGTH} \
