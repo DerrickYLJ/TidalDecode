@@ -5,7 +5,7 @@
 # gradientai/Llama-3-70B-Instruct-Gradient-1048k
 # NousResearch/Yarn-Llama-2-7b-128k
 # Parameters
-MODEL_NAME="meta-llama/Llama-3.1-8B-Instruct"
+MODEL_NAME="gradientai/Llama-3-8B-Instruct-Gradient-1048k"
 MAX_LENGTH=32000
 MIN_LENGTH=2000
 ROUNDS=5
