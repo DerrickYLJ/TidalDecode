@@ -13,15 +13,16 @@ from functools import cached_property
 import numpy as np
 import torch
 from absl.app import run
-from tqdm import tqdm
+from tqdm import tqdm, trange
+from tqdm.contrib import tenumerate
 from transformers import AutoModelForCausalLM, AutoTokenizer, GenerationConfig
 from torch.utils.checkpoint import checkpoint
 from src.utils import load, download_url, load_jsonl
 from src.enabling_index import enable_src
-# from vllm import LLM, SamplingParams
 
-# from minference import MInference
-os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'expandable_segments:True'
+
+os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
+
 
 class LLMNeedleHaystackTester:
     OURS_TEMPLATE = "Write a high-quality answer for the given question using only the provided search results (some of which might be irrelevant).\n{context}\n\nQuestion: {question} Don't give information outside the document or repeat your findings. Keep your response short and direct. Answer: "
@@ -201,17 +202,17 @@ class LLMNeedleHaystackTester:
             print(self.context_lengths)
             self.context_lengths = self.context_lengths[int(start) : int(end)]
             print(self.context_lengths)
-        self.tokenizer = AutoTokenizer.from_pretrained(
-            config.model_name, trust_remote_code=config.trust_remote_code
-        )
-
-        self.model, self.tokenizer = load(config.model_name)
+        self.model, self.tokenizer = load(config.model_name, config.attn_type, top_k=config.top_k, sparse_layer_start=config.sparse_layer_start,
+            correction_layer=config.correction_layer)
         print(self.model)
-        enable_src(self.model, config.top_k)
         self.generation_config = GenerationConfig(
             max_new_tokens=32,
-            pad_token_id=self.tokenizer.pad_token_id,
-            eos_token_id=self.tokenizer.eos_token_id,
+            pad_token_id=(
+                self.tokenizer.pad_token_id if self.tokenizer != None else None
+            ),
+            eos_token_id=(
+                self.tokenizer.eos_token_id if self.tokenizer != None else None
+            ),
             do_sample=False,
         )
 
@@ -219,6 +220,42 @@ class LLMNeedleHaystackTester:
         lower_bound = 10 ** (num_digits - 1)
         upper_bound = 10**num_digits - 1
         return random.randint(lower_bound, upper_bound)
+
+    def generate_prompt(self, n_garbage, depth_ratio):
+        """Generates a text file and inserts an execute line at a random position."""
+
+        # Generate test depth
+        # depth_ratio = 0 means random depth
+        if depth_ratio == 0:
+            n_garbage_prefix = random.randint(0, n_garbage)
+        else:
+            n_garbage_prefix = int(n_garbage * depth_ratio / 100)
+
+        n_garbage_suffix = n_garbage - n_garbage_prefix
+        task_description = "There is an important info hidden inside a lot of irrelevant text. Find it and memorize them. I will quiz you about the important information there."
+        garbage = "The grass is green. The sky is blue. The sun is yellow. Here we go. There and back again."
+        garbage_inf = " ".join([garbage] * 10000)
+        assert len(garbage_inf) >= n_garbage
+        garbage_prefix = garbage_inf[:n_garbage_prefix]
+        garbage_suffix = garbage_inf[:n_garbage_suffix]
+        pass_key = random.randint(1, 50000)
+        information_line = (
+            f"The pass key is {pass_key}. Remember it. {pass_key} is the pass key."
+        )
+        final_question = "What is the pass key? The pass key is"
+        lines = [
+            task_description,
+            garbage_prefix,
+            information_line,
+            garbage_suffix,
+            final_question,
+        ]
+        return (
+            "\n".join(lines),
+            pass_key,
+            "\n".join([task_description, garbage_prefix]),
+            "\n".join([task_description, garbage_prefix, information_line]),
+        )
 
     def logistic(self, x, L=100, x0=50, k=0.1):
         if x == 0:
@@ -321,6 +358,10 @@ class LLMNeedleHaystackTester:
         ]
 
         start = time.time()
+
+        correct_cnt = 0
+        total_cnt = 0
+    
         for context_length in self.context_lengths:
             torch.cuda.empty_cache()
             trim_contexts = [
@@ -350,7 +391,10 @@ class LLMNeedleHaystackTester:
                     )
                     contexts.append(context)
 
-            for context in tqdm(contexts):
+            for _, context in enumerate(tqdm(contexts)):
+                depth = int(context["depth_percent"])
+                length = context["context_length"]
+
                 prompt = template.format(
                     context=context["context"], question=context["question"]
                 )
@@ -359,14 +403,13 @@ class LLMNeedleHaystackTester:
                 )
                 with torch.no_grad():
                     outs = self.model.generate(
-                    **input_tensor,
-                    generation_config=self.generation_config,
-                    do_sample=False,
-
-                )
+                        **input_tensor,
+                        generation_config=self.generation_config,
+                        do_sample=False,
+                    )
                 new_tokens = outs[0, input_tensor["input_ids"].shape[-1] :]
                 out = self.tokenizer.decode(new_tokens, skip_special_tokens=True)
-                print(out)
+                init = time.time()
                 results.append(
                     {
                         "context_length": context["context_length"],
@@ -377,25 +420,20 @@ class LLMNeedleHaystackTester:
                         "seed": context["seed"],
                     }
                 )
+                correct = context["needle_rnd_number"] in out
+                correct_cnt = correct_cnt + 1 if correct else correct_cnt
+                total_cnt += 1
+                print(
+                    f"depth: {depth/100}; len: {length}; inserted_pos: {int(depth*length//100)}: correct: {correct}", flush=True
+                )
+                print("output: ", out)
             with open(self.config.output_file, "w") as f:
                 json.dump(results, f)
         print("elapsed", time.time() - start)
         print("done")
-        print(f"Saved results to {self.config.output_file}")
-
-    def print_start_test_summary(self):
-        print("\n")
-        print("Starting Needle In A Haystack Testing...")
         print(
-            f"- Context Lengths: {len(self.context_lengths)}, Min: {min(self.context_lengths)}, Max: {max(self.context_lengths)}"
+            f"correction_layer: {self.config.correction_layer}; top_k: {self.config.top_k}; correctness rate: {correct_cnt/total_cnt}"
         )
-        print(
-            f"- Document Depths: {len(self.document_depth_percents)}, Min: {min(self.document_depth_percents)}%, Max: {max(self.document_depth_percents)}%"
-        )
-        print(f"- Needle: {self.needle.strip()}")
-        print("\n\n")
 
     def start_test(self):
-        if self.print_ongoing_status:
-            self.print_start_test_summary()
         self.run_test()
