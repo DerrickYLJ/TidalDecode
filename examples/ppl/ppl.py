@@ -11,20 +11,12 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 from tqdm import tqdm
-from transformers import (
-    AutoConfig,
-    AutoModelForCausalLM,
-    AutoTokenizer,
-    LlamaForCausalLM,
-)
 
 from src.utils import load, download_url, load_jsonl
-from src.enabling_index import enable_src
 
 import torch
 from tqdm import tqdm
 import os
-from transformers import AutoModelForCausalLM, AutoTokenizer
 from datasets import load_dataset
 from torch.nn import CrossEntropyLoss
 
@@ -35,11 +27,8 @@ device = "cuda"
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--model_name_or_path", type=str)
-parser.add_argument("--fixed-length", type=int)
 parser.add_argument("--max-tokens", type=int, default=8192)
 parser.add_argument("--min-tokens", type=int, default=256)
-parser.add_argument("--tokens-step", type=int)
-parser.add_argument("--length-step", type=int, default=128)
 parser.add_argument("--iterations", type=int, default=20)
 parser.add_argument("--output_dir", type=str)
 parser.add_argument("--sparse_layer_start", type=int, default=2)
@@ -50,27 +39,19 @@ parser.add_argument("--num_eval_tokens", type=int, default=None)
 parser.add_argument(
     "--attn_type",
     type=str,
-    choices=["index", "quest"],
-    default="index",
+    choices=["tidal"],
+    default=None,
 )
 parser.add_argument("--top_k", type=int, default=1024)
-parser.add_argument("--chunk_size", type=int, default=16)
 
 
 def load_model(model_name_or_path, args):
     print(f"Loading model from {model_name_or_path} ...")
     # however, tensor parallel for running falcon will occur bugs
 
-    model, tokenizer = load(model_name_or_path)
-    enable_src(
-        model,
-        args.top_k,
-        None,
-        args.attn_type,
-        args.sparse_layer_start,
-        args.correction_layer,
-    )
-
+    model, tokenizer = load(model_name_or_path, args.attn_type, top_k=args.top_k, sparse_layer_start=args.sparse_layer_start,
+        correction_layer=args.correction_layer)
+    
     if tokenizer.pad_token_id is None:
         if tokenizer.eos_token_id is not None:
             tokenizer.pad_token_id = tokenizer.eos_token_id

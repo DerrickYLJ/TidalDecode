@@ -1,13 +1,13 @@
 MODELPATH=gradientai/Llama-3-8B-Instruct-Gradient-1048k
-OUTPUT_DIR=results/ppl/4096_100K/
+EVAL_TOKEN=4000
+TOP_K=4096
+OUTPUT_DIR=results/ppl/${TOP_K}_${EVAL_TOKEN}/
 mkdir -p $OUTPUT_DIR
 
-budget=4096
-
-nohup python -u examples/ppl/run_ppl.py \
+nohup python -u examples/ppl/ppl.py \
     --model_name_or_path $MODELPATH \
     --output_dir $OUTPUT_DIR \
-    --num_eval_tokens 96000 \
+    --num_eval_tokens $EVAL_TOKEN \
     --correction_layer 13 \
     --sparse_layer_start 2 \
-    --attn_type index --top_k $budget  --chunk_size 16 > output_100K_4096.log
+    --top_k $TOP_K  > ${OUTPUT_DIR}/output_${EVAL_TOKEN}_${TOP_K}.log
