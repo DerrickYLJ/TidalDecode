@@ -1,0 +1,23 @@
+c_compiler_version:
+  - 11
+
+cxx_compiler_version:
+  - 11
+
+cuda_compiler:
+  - cuda-nvcc
+
+cuda11_compiler:
+  - nvcc
+
+sysroot_version:
+  - "2.17"
+
+ucx_version:
+  - ">=1.14.1,<1.16.0"
+
+ucx_py_version:
+  - "0.36.*"
+
+cmake_version:
+  - ">=3.26.4"
