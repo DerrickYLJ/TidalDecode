@@ -1,22 +1,29 @@
 import torch
 import argparse
-from transformers import (
-    AutoTokenizer,
-    AutoModelForCausalLM,
-)
 import os.path as osp
 import ssl
 import urllib.request
 import os
 import json
+from src.enable_tidal import enable_tidal
 
 
 def parse_args():
+    # TODO: modify arg parse
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--model_name_or_path", type=str, default="models/llama/llama-7b"
     )
-    parser.add_argument("--revision", type=str, default="main")
+    parser.add_argument(
+            "--attn_type",
+                type=str,
+                choices=[
+                    "index",
+                    "quest"
+                ],
+                default="index",
+        )
+    parser.add_argument("--", type=str, default="main")
     parser.add_argument("--tokenizer_name_or_path", type=str, default=None)
     parser.add_argument("--dataset_name", type=str, default="wikitext")
 
@@ -25,45 +32,55 @@ def parse_args():
         "--split", type=str, default="test", choices=["validation", "test"]
     )
 
-    parser.add_argument(
-        "--num_samples",
-        type=int,
-        default=1,
-    )
-
-    parser.add_argument(
-        "--output_dir",
-        type=str,
-        default="outputs/debug",
-    )
-
-    parser.add_argument("--enable_start_recent_kv_cache", action="store_true")
-    parser.add_argument("--start_size", type=int, default=1)
-    parser.add_argument("--recent_size", type=int, default=255)
-    parser.add_argument("--enable_pos_shift", action="store_true")
-
-    parser.add_argument("--num_eval_tokens", type=int, default=None)
-
     args = parser.parse_args()
     return args
 
-
-def load(model_name_or_path, comm=None):
+def load(model_name_or_path, attn_type, **kwargs):
     print(f"Loading model from {model_name_or_path} ...")
-    # however, tensor parallel for running falcon will occur bugs
-    tokenizer = AutoTokenizer.from_pretrained(
-        model_name_or_path,
-        trust_remote_code=True,
-    )
-    print(model_name_or_path)
-    model = AutoModelForCausalLM.from_pretrained(
-        model_name_or_path,
-        device_map="auto",
-        torch_dtype=torch.float16,
-        trust_remote_code=True,
-        # pretraining_tp=10,
-        # attn_implementation="flash_attention_2",
-    )
+    
+    if attn_type=="tidal":
+        
+        print("TidalDecode enabled!")
+        from transformers import (
+            AutoTokenizer,
+        )
+        if "Yarn" in model_name_or_path:
+            from src.models.yarn_tidaldecoding import (
+                LlamaForCausalLM
+            )
+        else:
+            from src.models.llama_tidaldecoding import (
+                LlamaForCausalLM
+            )
+        tokenizer = AutoTokenizer.from_pretrained(
+            model_name_or_path,
+            trust_remote_code=True,
+        )
+        model = LlamaForCausalLM.from_pretrained(
+            model_name_or_path,
+            device_map="auto",
+            torch_dtype=torch.float16,
+            trust_remote_code=True,
+        )
+        enable_tidal(model, attn_type, **kwargs)
+    else:
+        # flash attention
+        from transformers import (
+            AutoTokenizer,
+            AutoModelForCausalLM,
+        )
+        print("full-weight attention enabled")
+        tokenizer = AutoTokenizer.from_pretrained(
+            model_name_or_path,
+            trust_remote_code=True,
+        )
+        model = AutoModelForCausalLM.from_pretrained(
+            model_name_or_path,
+            device_map="auto",
+            torch_dtype=torch.float16,
+            trust_remote_code=True,
+        )
+    print(f"Loaded Model: {model}")
     if tokenizer.pad_token_id is None:
         if tokenizer.eos_token_id is not None:
             tokenizer.pad_token_id = tokenizer.eos_token_id
@@ -114,3 +131,4 @@ def load_jsonl(
         for line in f:
             list_data_dict.append(json.loads(line))
     return list_data_dict
+

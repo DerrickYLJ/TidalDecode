@@ -40,7 +40,7 @@ from transformers.utils import (
     logging,
     replace_return_docstrings,
 )
-from .configuration_llama import LlamaConfig
+from transformers.models.llama.configuration_llama import LlamaConfig
 
 # import faiss
 import numpy as np

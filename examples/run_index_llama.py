@@ -12,11 +12,10 @@ import sys
 
 from tqdm import tqdm
 from src.utils import load, download_url, load_jsonl
-from src.enabling_index import enable_src
 
 
 @torch.no_grad()
-def index_inference(model, tokenizer, prompts, max_gen_len=256):
+def tidal_inference(model, tokenizer, prompts, max_gen_len=256):
     for idx, prompt in enumerate(prompts):
         prompt = "USER: " + prompt + "\n\nASSISTANT: "
         print("\n" + prompt, end="")
@@ -38,7 +37,7 @@ def index_inference(model, tokenizer, prompts, max_gen_len=256):
 
 def main(args):
     model_name_or_path = args.model_name
-    model, tokenizer = load(model_name_or_path)
+    model, tokenizer = load(model_name_or_path, args.attn_type, top_k=args.top_k, sparse_layer_start=args.sparse_layer_start, correction_layer=args.correction_layer)
     test_filepath = os.path.join(args.data_root, "mt_bench.jsonl")
     print(f"Loading data from {test_filepath} ...")
 
@@ -54,9 +53,7 @@ def main(args):
     for sample in list_data:
         prompts += sample["turns"]
 
-    enable_src(model, args.top_k, None)
-
-    index_inference(
+    tidal_inference(
         model,
         tokenizer,
         prompts,
@@ -70,8 +67,18 @@ if __name__ == "__main__":
         type=str,
         default="gradientai/Llama-3-8B-Instruct-Gradient-1048k",
     )
+    parser.add_argument(
+            "--attn_type",
+                type=str,
+                choices=[
+                    "tidal",
+                ],
+                default=None,
+        )
     parser.add_argument("--data_root", type=str, default="data/")
-    parser.add_argument("--top_k", type=int, default=None)
+    parser.add_argument("--top_k", type=int, default=128)
+    parser.add_argument("--sparse_layer_start", type=int, default=2)
+    parser.add_argument("--correction_layer", type=int, default=13)
 
     args = parser.parse_args()
 
