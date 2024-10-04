@@ -7,7 +7,7 @@ name = "tidal"
 version = "0.0.1"
 
 dependencies = [
-    "accelerate==0.23.0",
+    "accelerate==0.26.0",
     "DataProperty==1.0.1",
     "datasets==2.14.5",
     "evaluate==0.4.0",
@@ -17,7 +17,7 @@ dependencies = [
     "ffmpy==0.3.1",
     "fsspec==2023.6.0",
     "ftfy==6.1.3",
-    "huggingface-hub==0.20.1",
+    "huggingface-hub>=0.23.2,<1.0.0",
     "lm_eval==0.3.0",
     "numpy==1.26.0",
     "protobuf==4.24.4",
@@ -28,7 +28,7 @@ dependencies = [
     "torch==2.1.2",
     "tqdm==4.66.1",
     "tqdm-multiprocess==0.0.11",
-    "tokenizers==0.13.3",
+    "tokenizers>=0.20,<0.21",
     "transformers==4.45.1",
     "triton==2.1.0",
     "zstandard==0.21.0",
@@ -40,6 +40,7 @@ dependencies = [
     "pytest==8.2.2",
     "textual==0.68.0",
 ]
+
 
 [tool.setuptools.packages.find]
 where = ["."]
