@@ -27,7 +27,7 @@ cd kernels/3rdparty/raft
 3. Build end-to-end operators with PyBind
 ```
 # This will automatically build and link the operators
-cd quest/ops
+cd tidal/ops
 bash setup.sh
 ```
 
