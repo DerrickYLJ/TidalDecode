@@ -18,7 +18,6 @@ from tqdm.contrib import tenumerate
 from transformers import AutoModelForCausalLM, AutoTokenizer, GenerationConfig
 from torch.utils.checkpoint import checkpoint
 from src.utils import load, download_url, load_jsonl
-from src.enabling_index import enable_src
 
 
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
