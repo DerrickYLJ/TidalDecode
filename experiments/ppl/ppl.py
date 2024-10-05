@@ -27,9 +27,6 @@ device = "cuda"
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--model_name_or_path", type=str)
-parser.add_argument("--max-tokens", type=int, default=8192)
-parser.add_argument("--min-tokens", type=int, default=256)
-parser.add_argument("--iterations", type=int, default=20)
 parser.add_argument("--output_dir", type=str)
 parser.add_argument("--sparse_layer_start", type=int, default=2)
 parser.add_argument("--correction_layer", type=int, default=9)
