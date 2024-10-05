@@ -9,6 +9,7 @@ attention without sacrificing the quality of the generated results. Evaluation o
 ## Installation
 1. Clone the submodules
 ```
+git clone https://github.com/DerrickYLJ/TidalDecode.git
 git submodule update --init --recursive
 ```
 2. Install dependency libraries
