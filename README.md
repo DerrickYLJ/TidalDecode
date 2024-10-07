@@ -17,6 +17,7 @@ git submodule update --init --recursive
 conda create -yn tidal python=3.10
 conda activate tidal
 pip install -e . && pip install flash-attn==2.3.0 --no-build-isolation
+python setup.py develop
 
 # Install CMake (with version >= 3.26.4)
 conda install cmake
@@ -71,9 +72,10 @@ bash bench_efficiency_e2e.sh
 ```
 
 ## Future Plan
-This repo mainly reproduces the results in our paper [paper link](TODO). As TidalDecode is flexible in the choice of the token selection layer, we are developing a library to support the efficient deployment of our method with flexible model configurations that suit users' accuracy/efficiency requirements.
+This repo mainly reproduces the results in our [paper](TODO). As TidalDecode is flexible in the choice of the token selection layer, we are developing a library to support the efficient deployment of our method with flexible model configurations that suit users' accuracy/efficiency requirements.
 
 ## Reference
 ```
-TODO
+- [ ] Support Llama3 Model Implementation + GQA
+- [ ] Independent top-k selection by head
 ```
