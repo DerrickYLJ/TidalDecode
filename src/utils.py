@@ -18,8 +18,7 @@ def parse_args():
             "--attn_type",
                 type=str,
                 choices=[
-                    "index",
-                    "quest"
+                    "tidal",
                 ],
                 default="index",
         )
