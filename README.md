@@ -72,7 +72,7 @@ bash bench_efficiency_e2e.sh
 ```
 
 ## Future Plan
-This repo mainly reproduces the results in our [paper](TODO). As TidalDecode is flexible in the choice of the token selection layer, we are developing a library to support the efficient deployment of our method with flexible model configurations that suit users' accuracy/efficiency requirements.
+This repo mainly reproduces the results in our [paper](https://arxiv.org/abs/2410.05076). As TidalDecode is flexible in the choice of the token selection layer, we are developing a library to support the efficient deployment of our method with flexible model configurations that suit users' accuracy/efficiency requirements.
 - [ ] Llama3 Model Support + GQA
 - [ ] Independent top-k selection by head
 
