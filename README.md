@@ -1,4 +1,4 @@
-### TidalDecode: Fast and Accurate LLM Decoding with Position Persistent Sparse Attention
+# TidalDecode: Fast and Accurate LLM Decoding with Position Persistent Sparse Attention
 
 ## Abstract
 Large language models (LLMs) have driven significant advancements across diverse NLP tasks, with long-context models gaining prominence for handling extended inputs. However, the expanding key-value (KV) cache size required by Transformer architectures intensifies the memory constraints, particularly during the decoding phase, creating a significant bottleneck. Existing sparse attention mechanisms designed to address this bottleneck have two limitations: (1) they often fail to reliably identify the most relevant tokens for attention, and (2) they overlook the spatial coherence of token selection across consecutive Transformer layers, which can lead to performance degradation and substantial overhead in token selection. 
