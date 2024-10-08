@@ -78,6 +78,14 @@ This repo mainly reproduces the results in our [paper](TODO). As TidalDecode is 
 
 ## Reference
 ```
-TBD
+@misc{yang2024tidaldecodefastaccuratellm,
+      title={TidalDecode: Fast and Accurate LLM Decoding with Position Persistent Sparse Attention}, 
+      author={Lijie Yang and Zhihao Zhang and Zhuofu Chen and Zikun Li and Zhihao Jia},
+      year={2024},
+      eprint={2410.05076},
+      archivePrefix={arXiv},
+      primaryClass={cs.LG},
+      url={https://arxiv.org/abs/2410.05076}, 
+}
 ```
 
