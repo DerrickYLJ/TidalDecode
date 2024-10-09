@@ -8,6 +8,10 @@ Given such circumstance, we introduce **TidalDecode**, a simple yet effective al
 attention without sacrificing the quality of the generated results. Evaluation on a diverse set of LLMs and tasks shows that TidalDecode closely matches the generative performance of full attention methods while reducing the LLM decoding latency by up to **2.1x**.
 
 ### Latency
+![Figure 1: Llama Latency Evaluation](assets/llama_e2e_eval.png)
+
+*Figure 1: End-to-end latency results on LLaMA-2-7B model for Full attention baseline(Full), SOTA Quest, and TidalDecode(TD) when context length is 10K, 32K, and 100K, respectively.*
+
 ![Figure 2: Llama Latency Evaluation](assets/llama_latency_eval.png)
 
 *Figure 2: Overall attention latency results for different methods on the LLaMA model with (a) 32 and (b) 64 layers. The full attention model is used as a reference to show TidalDecode and Quest's overall attention latency ratio. The left/middle/right bar denotes the full attention baseline, Quest, and TidalDecode, respectively.*
@@ -15,7 +19,7 @@ attention without sacrificing the quality of the generated results. Evaluation o
 ### Accuracy
 ![Llama3 Needle Evaluation](assets/llama3_needle_eval.png)
 
-*Figure 3: 10K- and 100K-context-length Needle-in-the-Haystack test results on Llama-3-8B-Instruct-Gradient-1048k. TidalDecode consistently outperforms Quest and achieves full accuracy with 128 tokens in 10K-, and 100K-context-length tests, which is only 1\% and 0.1\% of total input lengths, respectively.*
+*Figure 3: 10K- and 100K-context-length Needle-in-the-Haystack test results of TD+Lx (x means recomputing at Layer x) and Quest on Llama-3-8B-Instruct-Gradient-1048k. TidalDecode consistently outperforms Quest and achieves full accuracy with 128 tokens in 10K-, and 100K-context-length tests, which is only 1\% and 0.1\% of total input lengths, respectively.*
 
 ## Installation
 1. Clone the submodules
