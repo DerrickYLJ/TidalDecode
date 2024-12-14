@@ -694,9 +694,7 @@ BatchPrefillWithPagedKVCacheKernel(IdType* __restrict__ request_indices,
 								   DTypeOut* __restrict__ o,
 								   float* __restrict__ tmp,
 								   float* __restrict__ lse,
-								   float sm_scale,
-								   const float log2_rope_rcp_scale,
-								   const float log2_rope_rcp_theta) {
+								   float sm_scale) {
 	static_assert(sizeof(DTypeIn) == 2);
 	static_assert(sizeof(DTypeOut) == 2);
 	sm_scale *= math::log2e;
@@ -891,12 +889,8 @@ cudaError_t BatchPrefillWithPagedKVCacheDispatched(
 	float* tmp,
 	float* lse,
 	uint32_t num_qo_tiles,
-	float rope_scale,
-	float rope_theta,
 	cudaStream_t stream) {
 	const float sm_scale = 1.f / std::sqrt(float(paged_kv.head_dim));
-	const float log2_rope_rcp_scale = -std::log2f(rope_scale);
-	const float log2_rope_rcp_theta = -std::log2f(rope_theta);
 	constexpr uint32_t num_warps = 4;
 	const uint32_t num_kv_heads = paged_kv.num_heads;
 	const uint32_t batch_size = paged_kv.batch_size;
@@ -954,9 +948,7 @@ cudaError_t BatchPrefillWithPagedKVCacheDispatched(
 						(void*)&o,
 						(void*)&tmp,
 						(void*)&lse,
-						(void*)&sm_scale,
-						(void*)&log2_rope_rcp_scale,
-						(void*)&log2_rope_rcp_theta};
+						(void*)&sm_scale};
 		FLASHINFER_CUDA_CALL(
 			cudaLaunchKernel((void*)kernel, nblks, nthrs, args, smem_size, stream));
 	});
@@ -1015,8 +1007,6 @@ BatchPrefillWithPagedKVCache(DTypeIn* q,
 							 bool causal = true,
 							 RotaryMode rotary_mode = RotaryMode::kNone,
 							 bool allow_fp16_qk_reduction = false,
-							 float rope_scale = 1.f,
-							 float rope_theta = 1e4,
 							 cudaStream_t stream = nullptr) {
 	const uint32_t num_kv_heads = paged_kv.num_heads;
 	const uint32_t head_dim = paged_kv.head_dim;
@@ -1101,8 +1091,6 @@ BatchPrefillWithPagedKVCache(DTypeIn* q,
 																  tmp,
 																  lse,
 																  num_qo_tiles,
-																  rope_scale,
-																  rope_theta,
 																  stream);
 												  }
 											  })

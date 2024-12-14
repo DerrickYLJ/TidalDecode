@@ -80,7 +80,6 @@ public:
 		// TODO: Support more general cases.
 		static_assert(page_storage == PageStorage::kIndices,
 					  "Only support PageStorage::kIndices for now.");
-		assert(num_qo_heads == num_kv_heads); // Need to modify page layout for general cases.
 		batch_size_before_partition_ = batch_size;
 		uint32_t tmp_size, max_grid_size, max_num_pages_per_batch, new_batch_size;
 		auto work_estimation_func = BatchDecodeWithPagedKVCacheWorkEstimation<page_storage,

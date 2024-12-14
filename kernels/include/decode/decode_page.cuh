@@ -25,6 +25,7 @@
 
 #include <cuda_fp16.h>
 #include <vector>
+#include <cmath>
 
 #include "flashinfer/layout.cuh"
 #include "flashinfer/rope.cuh"
@@ -81,6 +82,8 @@ struct paged_kv_t {
 	// page budget for inference, equal to nnz_pages.
 	// Not contain the tail page (equal to page_budget - 1)
 	uint32_t page_budget;
+	// The maximum number of pages.
+	uint32_t max_seq_len;
 	// The offset of the last page for all heads.
 	// single value for we manually align all heads with the last page.
 	uint32_t last_page_len;
@@ -113,6 +116,7 @@ struct paged_kv_t {
 		, head_dim(0)
 		, batch_size(0)
 		, page_budget(0)
+		, max_seq_len(0)
 		, last_page_len(0)
 		, last_page_idx(0)
 		, data(nullptr)
@@ -137,6 +141,7 @@ struct paged_kv_t {
 												   uint32_t head_dim,
 												   uint32_t batch_size,
 												   uint32_t page_budget,
+												   uint32_t max_seq_len,
 												   uint32_t last_page_len,
 												   IdType last_page_idx,
 												   DType* data,
@@ -147,6 +152,7 @@ struct paged_kv_t {
 		, head_dim(head_dim)
 		, batch_size(batch_size)
 		, page_budget(page_budget)
+		, max_seq_len(max_seq_len)
 		, last_page_len(last_page_len)
 		, last_page_idx(last_page_idx)
 		, data(data)
@@ -169,6 +175,7 @@ struct paged_kv_t {
 												   uint32_t head_dim,
 												   uint32_t batch_size,
 												   uint32_t page_budget,
+												   uint32_t max_seq_len,
 												   DType** ptrs,
 												   IdType* indptr,
 												   IdType* last_page_len)
@@ -177,6 +184,7 @@ struct paged_kv_t {
 		, head_dim(head_dim)
 		, batch_size(batch_size)
 		, page_budget(page_budget)
+		, max_seq_len(max_seq_len)
 		, ptrs(ptrs)
 		, indptr(indptr) { }
 
@@ -318,22 +326,23 @@ struct paged_kv_t {
 	}
 
 	__device__ __forceinline__ DType* protective_get_k_ptr_heads(IdType page_iter,
-																 uint32_t head_idx,
+																 uint32_t qo_head_idx,
+																 uint32_t kv_head_idx,
 																 uint32_t entry_idx,
 																 uint32_t feat_idx,
 																 IdType last_indptr) const {
+		// TODO(ZZ): add qo_head_idx, kv_head_idx args
 		if constexpr(page_storage == PageStorage::kIndices) {
 			if(blockIdx.x == gridDim.x - 1) {
 				// This is manully appended last page. Only one page here
-				return data + get_k_elem_offset(last_page_idx, head_idx, entry_idx, feat_idx);
+				return data + get_k_elem_offset(last_page_idx, kv_head_idx, entry_idx, feat_idx);
 			} else {
-				// Note (Yilong):
 				// indices: [num_kv_heads, page_budget - 1]. Manully exclude the last page for sake of Top-k.
 				// Therefore, boundary check is last_indptr - 1 (since last_indptr is the last page index).
 				if(page_iter < last_indptr - 1) {
 					return data +
-						   get_k_elem_offset(__ldg(indices + page_iter + head_idx * page_budget),
-											 head_idx,
+						   get_k_elem_offset(__ldg(indices + page_iter + qo_head_idx * page_budget),
+											 kv_head_idx,
 											 entry_idx,
 											 feat_idx);
 				} else {
@@ -392,7 +401,6 @@ template <uint32_t head_dim,
 		  typename IdType>
 __global__ void
 AppendPagedKVCacheDecodeKernel(paged_kv_t<page_storage, layout, DType, IdType> paged_kv,
-							   paged_kv_t<page_storage, layout, DType, IdType> candidate_kv,
 							   DType* __restrict__ key,
 							   DType* __restrict__ value) {
 	uint32_t tx = threadIdx.x, ty = threadIdx.y;
@@ -408,37 +416,13 @@ AppendPagedKVCacheDecodeKernel(paged_kv_t<page_storage, layout, DType, IdType> p
 	uint32_t page_iter = paged_kv.indptr[batch_idx] + (seq_len - 1) / paged_kv.page_size;
 	uint32_t entry_idx = (seq_len - 1) % paged_kv.page_size;
 
-	// calculate the metadata position
-	// directly append to the last page. Note that it need be maintained by high-level stack
-	// Not using page_iter since it is index instead of indptr
-	uint32_t candidate_ptr = candidate_kv.indptr[batch_idx + 1] - 1;
-	uint32_t candidate_entry_idx = candidate_kv.last_page_len - 1;
-
-	vec_t<DType, vec_size> local_max, local_min;
-	// We do not want initialize before kernel.
-	if(entry_idx > 0) {
-		local_max.cast_load(
-			candidate_kv.get_k_ptr(candidate_ptr, head_idx, candidate_entry_idx, tx * vec_size));
-		local_min.cast_load(
-			candidate_kv.get_v_ptr(candidate_ptr, head_idx, candidate_entry_idx, tx * vec_size));
-	} else {
-		local_max.fill(-CUDART_MAX_NORMAL_FP16);
-		local_min.fill(CUDART_MAX_NORMAL_FP16);
-	}
-
 	// load the append value
 	vec_t<DType, vec_size> local_k;
 	DType* k_ptr = paged_kv.get_k_ptr(page_iter, head_idx, entry_idx, tx * vec_size);
 	DType* v_ptr = k_ptr + paged_kv.kv_offset_delta();
 	local_k.cast_load(key + (batch_idx * num_heads + head_idx) * head_dim +
 					  tx * vec_size); // Default NHD
-	vec_reduct<vec_size, true>(local_max, local_k);
-	vec_reduct<vec_size, false>(local_min, local_k);
 	local_k.cast_store(k_ptr);
-	local_max.cast_store(
-		candidate_kv.get_k_ptr(candidate_ptr, head_idx, candidate_entry_idx, tx * vec_size));
-	local_min.cast_store(
-		candidate_kv.get_v_ptr(candidate_ptr, head_idx, candidate_entry_idx, tx * vec_size));
 	vec_t<DType, vec_size>::memcpy(
 		v_ptr, value + (batch_idx * num_heads + head_idx) * head_dim + tx * vec_size);
 }
@@ -452,7 +436,6 @@ AppendPagedKVCacheDecodeKernel(paged_kv_t<page_storage, layout, DType, IdType> p
  * \tparam DType The data type of the key-value cache
  * \tparam IdType The index data type of the kv-cache
  * \param paged_kv The paged key-value cache
- * \param candidate_kv The metadata used for estimating Critical KV tokens
  * \param key The key to be appended
  * \param value The value to be appended
  * \param append_indptr The indptr array of the appended ragged tensor
@@ -465,7 +448,6 @@ template <uint32_t head_dim,
 		  typename IdType>
 __global__ void
 AppendPagedKVCachePrefillKernel(paged_kv_t<page_storage, layout, DType, IdType> paged_kv,
-								paged_kv_t<page_storage, layout, DType, IdType> candidate_kv,
 								DType* __restrict__ key,
 								DType* __restrict__ value,
 								IdType* __restrict__ append_indptr) {
@@ -486,10 +468,6 @@ AppendPagedKVCachePrefillKernel(paged_kv_t<page_storage, layout, DType, IdType> 
 	for(int32_t page_offset_bdx = start_page_offset_bdx; page_offset_bdx < page_nums;
 		page_offset_bdx += bdy) {
 		// page_offset_bdx is the page offset (start with 0) for the current batch
-		// calculate candidate position info
-		// candidate_kv shares the same page_size as paged_kv
-		int32_t candidate_page_idx = page_offset_bdx / candidate_kv.page_size;
-		int32_t candidate_entry_idx = page_offset_bdx % candidate_kv.page_size;
 
 		int32_t page_iter = static_cast<int32_t>(paged_kv.indptr[batch_idx]) + page_offset_bdx;
 		int32_t start_entry_idx =
@@ -497,25 +475,6 @@ AppendPagedKVCachePrefillKernel(paged_kv_t<page_storage, layout, DType, IdType> 
 		int32_t end_entry_idx =
 			min(static_cast<int32_t>(paged_kv.page_size),
 				seq_len - page_offset_bdx * static_cast<int32_t>(paged_kv.page_size));
-
-		vec_t<DType, vec_size> local_max, local_min;
-		// We do not want initialize before kernel.
-		// Therefore we give init value if it is a new page.
-		if(start_entry_idx > 0) {
-			local_max.cast_load(
-				candidate_kv.get_k_ptr(candidate_kv.indptr[batch_idx] + candidate_page_idx,
-									   head_idx,
-									   candidate_entry_idx,
-									   tx * vec_size));
-			local_min.cast_load(
-				candidate_kv.get_v_ptr(candidate_kv.indptr[batch_idx] + candidate_page_idx,
-									   head_idx,
-									   candidate_entry_idx,
-									   tx * vec_size));
-		} else {
-			local_max.fill(-CUDART_MAX_NORMAL_FP16);
-			local_min.fill(CUDART_MAX_NORMAL_FP16);
-		}
 
 		for(int32_t entry_idx = start_entry_idx; entry_idx < end_entry_idx; ++entry_idx) {
 			DType* k_ptr = paged_kv.get_k_ptr(page_iter, head_idx, entry_idx, tx * vec_size);
@@ -529,8 +488,6 @@ AppendPagedKVCachePrefillKernel(paged_kv_t<page_storage, layout, DType, IdType> 
 							   head_idx) *
 								  head_dim +
 							  tx * vec_size);
-			vec_reduct<vec_size, true>(local_max, local_k);
-			vec_reduct<vec_size, false>(local_min, local_k);
 			local_k.cast_store(k_ptr);
 			// Only memcpy V value
 			vec_t<DType, vec_size>::memcpy(
@@ -543,16 +500,6 @@ AppendPagedKVCachePrefillKernel(paged_kv_t<page_storage, layout, DType, IdType> 
 						head_dim +
 					tx * vec_size);
 		}
-		local_max.cast_store(
-			candidate_kv.get_k_ptr(candidate_kv.indptr[batch_idx] + candidate_page_idx,
-								   head_idx,
-								   candidate_entry_idx,
-								   tx * vec_size));
-		local_min.cast_store(
-			candidate_kv.get_v_ptr(candidate_kv.indptr[batch_idx] + candidate_page_idx,
-								   head_idx,
-								   candidate_entry_idx,
-								   tx * vec_size));
 	}
 }
 
@@ -570,7 +517,6 @@ AppendPagedKVCachePrefillKernel(paged_kv_t<page_storage, layout, DType, IdType> 
  */
 template <PageStorage page_storage, QKVLayout layout, typename DType, typename IdType>
 cudaError_t AppendPagedKVCacheDecode(paged_kv_t<page_storage, layout, DType, IdType> paged_kv,
-									 paged_kv_t<page_storage, layout, DType, IdType> candidate_kv,
 									 DType* key,
 									 DType* value,
 									 cudaStream_t stream = nullptr) {
@@ -585,7 +531,7 @@ cudaError_t AppendPagedKVCacheDecode(paged_kv_t<page_storage, layout, DType, IdT
 		dim3 nthrs(bdx, bdy);
 		auto kernel =
 			AppendPagedKVCacheDecodeKernel<HEAD_DIM, vec_size, page_storage, layout, DType, IdType>;
-		void* args[] = {(void*)&paged_kv, (void*)&candidate_kv, (void*)&key, (void*)&value};
+		void* args[] = {(void*)&paged_kv, (void*)&key, (void*)&value};
 		FLASHINFER_CUDA_CALL(cudaLaunchKernel((void*)kernel, nblks, nthrs, args, 0, stream));
 	});
 	return cudaSuccess;
@@ -606,7 +552,6 @@ cudaError_t AppendPagedKVCacheDecode(paged_kv_t<page_storage, layout, DType, IdT
  */
 template <PageStorage page_storage, QKVLayout layout, typename DType, typename IdType>
 cudaError_t AppendPagedKVCachePrefill(paged_kv_t<page_storage, layout, DType, IdType> paged_kv,
-									  paged_kv_t<page_storage, layout, DType, IdType> candidate_kv,
 									  DType* key,
 									  DType* value,
 									  IdType* append_indptr,
@@ -627,7 +572,6 @@ cudaError_t AppendPagedKVCachePrefill(paged_kv_t<page_storage, layout, DType, Id
 													  DType,
 													  IdType>;
 		void* args[] = {(void*)&paged_kv,
-						(void*)&candidate_kv,
 						(void*)&key,
 						(void*)&value,
 						(void*)&append_indptr};
@@ -643,17 +587,24 @@ __global__ void QKApplyRotaryInPlaceKernel(DType* __restrict__ q,
 										   uint32_t past_kv_len,
 										   uint32_t num_qo_heads,
 										   uint32_t num_kv_heads,
-										   float rope_rcp_scale,
+										   float smooth_a,
+    									   float smooth_b, 
+										   float rope_rcp_scale, 
 										   float rope_rcp_theta) {
 	uint32_t bx = blockIdx.x, tx = threadIdx.x, ty = threadIdx.y;
 	const uint32_t bdy = blockDim.y;
 	vec_t<float, vec_size> freq;
 #pragma unroll
 	for(uint32_t i = 0; i < vec_size; ++i) {
-		freq[i] = rope_rcp_scale *
-				  __powf(rope_rcp_theta,
-						 float(2 * ((tx * vec_size + i) % (head_dim / 2))) / float(head_dim));
+		freq[i] = __powf(rope_rcp_theta,
+                       float(2 * ((tx * vec_size + i) % (head_dim / 2))) / float(head_dim));
+		float smooth = freq[i] * smooth_a + smooth_b;
+    	smooth = max(0.0f, min(1.0f, smooth));  // clamp to [0, 1]
+    	freq[i] = (1 - smooth) * (freq[i] * rope_rcp_scale) + smooth * freq[i];
 	}
+
+	
+	
 
 	if(bx < num_qo_heads) {
 		// apply rotary to q
@@ -699,6 +650,8 @@ cudaError_t QKApplyRotaryInPlace(DType* __restrict__ q,
 								 cudaStream_t stream = nullptr) {
 	float rope_rcp_scale = 1.0f / rope_scale;
 	float rope_rcp_theta = 1.0f / rope_theta;
+	float smooth_a = 0.f;
+  	float smooth_b = 0.f;
 
 	SWITCH_HEAD_DIM(head_dim, HEAD_DIM, {
 		constexpr uint32_t vec_size = std::max(16 / sizeof(DType), HEAD_DIM / 32);
@@ -714,6 +667,51 @@ cudaError_t QKApplyRotaryInPlace(DType* __restrict__ q,
 						(void*)&past_kv_len,
 						(void*)&num_qo_heads,
 						(void*)&num_kv_heads,
+						(void*)&smooth_a,
+                      	(void*)&smooth_b,
+						(void*)&rope_rcp_scale,
+						(void*)&rope_rcp_theta};
+		FLASHINFER_CUDA_CALL(cudaLaunchKernel((void*)kernel, nblks, nthrs, args, 0, stream));
+	});
+
+	return cudaSuccess;
+}
+
+template <typename DType>
+cudaError_t QKApplyLLaMA31RotaryInPlace(DType* __restrict__ q,
+								 DType* __restrict__ k,
+								 uint32_t seq_len,
+								 uint32_t past_kv_len,
+								 uint32_t num_qo_heads,
+								 uint32_t num_kv_heads,
+								 uint32_t head_dim,
+								 float low_freq_factor,
+    							 float high_freq_factor, 
+								 float old_context_length,
+								 float rope_scale = 1.f,
+								 float rope_theta = 1e4,
+								 cudaStream_t stream = nullptr) {
+	float rope_rcp_scale = 1.0f / rope_scale;
+	float rope_rcp_theta = 1.0f / rope_theta;
+	float smooth_a = old_context_length / (2 * M_PI * high_freq_factor - 2 * M_PI * low_freq_factor);
+  	float smooth_b = -1.0f / (high_freq_factor / low_freq_factor - 1.0f);
+
+	SWITCH_HEAD_DIM(head_dim, HEAD_DIM, {
+		constexpr uint32_t vec_size = std::max(16 / sizeof(DType), HEAD_DIM / 32);
+		constexpr uint32_t bdx = HEAD_DIM / vec_size;
+		uint32_t num_threads = std::max(128U, bdx);
+		uint32_t bdy = num_threads / bdx;
+		dim3 nblks((num_qo_heads + num_kv_heads));
+		dim3 nthrs(bdx, bdy);
+		auto kernel = QKApplyRotaryInPlaceKernel<HEAD_DIM, vec_size, bdx, DType>;
+		void* args[] = {(void*)&q,
+						(void*)&k,
+						(void*)&seq_len,
+						(void*)&past_kv_len,
+						(void*)&num_qo_heads,
+						(void*)&num_kv_heads,
+						(void*)&smooth_a,
+                        (void*)&smooth_b,
 						(void*)&rope_rcp_scale,
 						(void*)&rope_rcp_theta};
 		FLASHINFER_CUDA_CALL(cudaLaunchKernel((void*)kernel, nblks, nthrs, args, 0, stream));

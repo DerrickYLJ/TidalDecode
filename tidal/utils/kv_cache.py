@@ -75,13 +75,13 @@ class KvCache:
         max_seq_len: int,
         page_size,
         dtype: torch.dtype,
-        device: torch.device,
+        device: torch.device
     ):
 
         if max_seq_len <= 0:
             raise ValueError("init_len must be non-negative")
-
-        num_layers //= 4
+        
+        # num_layers //= 2
 
         self._pool = KvPool(
             num_layers=num_layers,
@@ -113,8 +113,8 @@ class KvCache:
         return self._indicies
 
     def buf_layer(self, layer_idx: int):
-        # assert layer_idx < self.pool.num_layers
-        return self._pool.buf[layer_idx % self.pool.num_layers]
+        assert layer_idx < self.pool.num_layers
+        return self._pool.buf[layer_idx]
 
     def append_seq(self, seq_len: int) -> int:
         """Reserve space for tokens and return number of new pages"""

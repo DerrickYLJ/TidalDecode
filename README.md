@@ -1,10 +1,25 @@
 # TidalDecode: Fast and Accurate LLM Decoding with Position Persistent Sparse Attention
-
+[[paper](https://arxiv.org/abs/2410.05076)] [[website](https://catalyst.cs.cmu.edu/projects/tidaldecode.html)] 
+![Illustration of TidalDecode Architecture](assets/TidalDecode-GIF.gif)
 ## Abstract
 Large language models (LLMs) have driven significant advancements across diverse NLP tasks, with long-context models gaining prominence for handling extended inputs. However, the expanding key-value (KV) cache size required by Transformer architectures intensifies the memory constraints, particularly during the decoding phase, creating a significant bottleneck. Existing sparse attention mechanisms designed to address this bottleneck have two limitations: (1) they often fail to reliably identify the most relevant tokens for attention, and (2) they overlook the spatial coherence of token selection across consecutive Transformer layers, which can lead to performance degradation and substantial overhead in token selection. 
 
 Given such circumstance, we introduce **TidalDecode**, a simple yet effective algorithm and system for fast and accurate LLM decoding through position persistent sparse attention. TidalDecode leverages the spatial coherence of tokens selected by existing sparse attention methods and introduces a few token selection layers that perform full attention to identify the tokens with the highest attention scores, while all other layers perform sparse attention with the pre-selected tokens. This design enables TidalDecode to substantially reduce the overhead of token selection for sparse
 attention without sacrificing the quality of the generated results. Evaluation on a diverse set of LLMs and tasks shows that TidalDecode closely matches the generative performance of full attention methods while reducing the LLM decoding latency by up to **2.1x**.
+
+### Latency
+![Figure 1: Llama Latency Evaluation](assets/llama_e2e_eval.png)
+
+*Figure 1: End-to-end latency results on LLaMA-2-7B model for Full attention baseline(Full), SOTA Quest, and TidalDecode(TD) when context length is 10K, 32K, and 100K, respectively.*
+
+![Figure 2: Llama Latency Evaluation](assets/llama_latency_eval.png)
+
+*Figure 2: Overall attention latency results for different methods on the LLaMA model with (a) 32 and (b) 64 layers. The full attention model is used as a reference to show TidalDecode and Quest's overall attention latency ratio. The left/middle/right bar denotes the full attention baseline, Quest, and TidalDecode, respectively.*
+
+### Accuracy
+![Llama3 Needle Evaluation](assets/llama3_needle_eval.png)
+
+*Figure 3: 10K- and 100K-context-length Needle-in-the-Haystack test results of TD+Lx (x means recomputing at Layer x) and Quest on Llama-3-8B-Instruct-Gradient-1048k. TidalDecode consistently outperforms Quest and achieves full accuracy with 128 tokens in 10K-, and 100K-context-length tests, which is only 1\% and 0.1\% of total input lengths, respectively.*
 
 ## Installation
 1. Clone the submodules
@@ -34,10 +49,17 @@ bash setup.sh
 ```
 
 ## Small Demo
-Run example:
+Run example for the PyTorch implementation:
 
 ```
 python examples/run_tidal_llama.py  --top_k 256 --model_name gradientai/Llama-3-8B-Instruct-Gradient-1048k
+```
+
+Run example for the CUDA implementation:
+
+```
+cd scripts
+bash test.sh
 ```
 
 ## Performance Evaluation
@@ -73,8 +95,8 @@ bash bench_efficiency_e2e.sh
 
 ## Future Plan
 This repo mainly reproduces the results in our [paper](https://arxiv.org/abs/2410.05076). As TidalDecode is flexible in the choice of the token selection layer, we are developing a library to support the efficient deployment of our method with flexible model configurations that suit users' accuracy/efficiency requirements.
-- [ ] Llama3 Model Support + GQA
-- [ ] Independent top-k selection by head
+- [x] Llama3 Model Support + GQA
+- [x] Independent top-k selection by head
 
 ## Reference
 ```

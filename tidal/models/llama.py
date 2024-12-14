@@ -27,9 +27,7 @@ from transformers.utils import (
 )
 from transformers.models.llama.configuration_llama import LlamaConfig
 
-from tidal.models.FullAttention import FullAttention
-from tidal.models.SearchAttention import SearchAttention
-from tidal.models.SparseAttention import SparseAttention
+from tidal.models.TDAttention import TDAttention
 from tidal.utils.controller import InferenceController
 from tidal.utils import rms_norm_forward
 
@@ -140,16 +138,17 @@ class LlamaMLP(nn.Module):
 
 class LlamaDecoderLayer(nn.Module):
     def __init__(
-        self, config: LlamaConfig, layer_idx: int, Attention: nn.Module = FullAttention
+        self, config: LlamaConfig, layer_idx: int, attn_type: str = "full"
     ):
         super().__init__()
         self.hidden_size = config.hidden_size
-        self.self_attn = Attention(config=config, layer_idx=layer_idx)
+        self.self_attn = TDAttention(config=config, layer_idx=layer_idx, att_type=attn_type)
         self.mlp = LlamaMLP(config)
         self.input_layernorm = LlamaRMSNorm(config.hidden_size, eps=config.rms_norm_eps)
         self.post_attention_layernorm = LlamaRMSNorm(
             config.hidden_size, eps=config.rms_norm_eps
         )
+        self.layer_idx = layer_idx
 
     def forward(
         self,
@@ -203,9 +202,11 @@ class LlamaDecoderLayer(nn.Module):
         hidden_states = self.post_attention_layernorm(hidden_states)
         torch.cuda.nvtx.range_pop()
 
+
         torch.cuda.nvtx.range_push("mlp")
         hidden_states = self.mlp(hidden_states)
         torch.cuda.nvtx.range_pop()
+
 
         hidden_states = residual + hidden_states
 
@@ -349,13 +350,13 @@ class LlamaModel(LlamaPreTrainedModel):
             config.vocab_size, config.hidden_size, self.padding_idx
         )
         layers = (
-            [LlamaDecoderLayer(config, i, FullAttention) for i in range(2)]
-            + [LlamaDecoderLayer(config, 2, SearchAttention)]
-            + [LlamaDecoderLayer(config, i, SparseAttention) for i in range(3, 12)]
-            + [LlamaDecoderLayer(config, 12, SearchAttention)]
+            [LlamaDecoderLayer(config, i, "full") for i in range(2)]
+            + [LlamaDecoderLayer(config, 2, "search")]
+            + [LlamaDecoderLayer(config, i, "sparse") for i in range(3, 13)]
+            + [LlamaDecoderLayer(config, 13, "search")]
             + [
-                LlamaDecoderLayer(config, i, SparseAttention)
-                for i in range(13, config.num_hidden_layers)
+                LlamaDecoderLayer(config, i, "sparse")
+                for i in range(14, config.num_hidden_layers)
             ]
         )
         self.layers = nn.ModuleList(layers)
@@ -510,11 +511,11 @@ class LlamaModel(LlamaPreTrainedModel):
                 self.iController.end_forward()
                 self.iController.set_token_budget(self._tidal_token_budget)
                 self.iController.begin_forward(seq_length, updateTensor=(idx == 0))
-            if idx == 12:
+            if idx == 13:
                 self.iController.end_forward()
                 self.iController.set_token_budget(self._tidal_max_page_limit)
                 self.iController.begin_forward(seq_length, updateTensor=(idx == 0))
-            if idx == 13:
+            if idx == 14:
                 self.iController.end_forward()
                 self.iController.set_token_budget(self._tidal_token_budget)
                 self.iController.begin_forward(seq_length, updateTensor=(idx == 0))
@@ -635,7 +636,8 @@ class LlamaForCausalLM(LlamaPreTrainedModel):
 
         self.model.iController = InferenceController(
             num_layers=config.num_hidden_layers,
-            num_heads=config.num_attention_heads,
+            num_qo_heads=config.num_attention_heads,
+            num_kv_heads=config.num_key_value_heads,
             head_dim=config.hidden_size // config.num_attention_heads,
             page_size=page_size,
             token_budget=self.model._tidal_token_budget,

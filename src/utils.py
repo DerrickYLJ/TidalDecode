@@ -34,7 +34,7 @@ def parse_args():
     args = parser.parse_args()
     return args
 
-def load(model_name_or_path, attn_type, **kwargs):
+def load(model_name_or_path, attn_type, device, **kwargs):
     print(f"Loading model from {model_name_or_path} ...")
     
     if attn_type=="tidal":
@@ -57,7 +57,7 @@ def load(model_name_or_path, attn_type, **kwargs):
         )
         model = LlamaForCausalLM.from_pretrained(
             model_name_or_path,
-            device_map="auto",
+            device_map=device,
             torch_dtype=torch.float16,
             trust_remote_code=True,
         )
@@ -75,11 +75,11 @@ def load(model_name_or_path, attn_type, **kwargs):
         )
         model = AutoModelForCausalLM.from_pretrained(
             model_name_or_path,
-            device_map="auto",
+            device_map=device,
             torch_dtype=torch.float16,
             trust_remote_code=True,
         )
-    print(f"Loaded Model: {model}")
+    # print(f"Loaded Model: {model}")
     if tokenizer.pad_token_id is None:
         if tokenizer.eos_token_id is not None:
             tokenizer.pad_token_id = tokenizer.eos_token_id

@@ -30,9 +30,7 @@ torch::Tensor prefill_with_paged_kv_cache(torch::Tensor q,
 										  unsigned int kv_last_page_len,
 										  bool causal,
 										  unsigned int layout,
-										  bool allow_fp16_qk_reduction,
-										  float rope_scale,
-										  float rope_theta) {
+										  bool allow_fp16_qk_reduction) {
 	constexpr size_t batch_size = 1;
 
 	#ifdef BSK_TORCH_CHECK
@@ -60,6 +58,7 @@ torch::Tensor prefill_with_paged_kv_cache(torch::Tensor q,
 
 	QKVLayout kv_layout = QKVLayout(layout);
 	unsigned int page_size, num_kv_heads;
+	int64_t max_seq_len = kv_data.size(0);
 	if(kv_layout == QKVLayout::kHND) {
 		num_kv_heads = kv_data.size(2);
 		page_size = kv_data.size(3);
@@ -80,6 +79,7 @@ torch::Tensor prefill_with_paged_kv_cache(torch::Tensor q,
 				head_dim,
 				batch_size,
 				0,
+				max_seq_len,
 				kv_last_page_len,
 				kv_indices[-1].item<int32_t>(),
 				static_cast<c_type*>(kv_data.data_ptr()),
@@ -100,9 +100,7 @@ torch::Tensor prefill_with_paged_kv_cache(torch::Tensor q,
 													  num_qo_heads,
 													  causal,
 													  RotaryMode::kNone,
-													  allow_fp16_qk_reduction,
-													  rope_scale,
-													  rope_theta);
+													  allow_fp16_qk_reduction);
 			TORCH_CHECK(status == cudaSuccess,
 						"BatchPrefillWithPagedKVCache failed with error code ",
 						cudaGetErrorString(status));

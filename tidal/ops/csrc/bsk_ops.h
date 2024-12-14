@@ -26,6 +26,15 @@ void apply_rope_in_place(torch::Tensor q,
 						 float rope_scale,
 						 float rope_theta);
 
+void apply_llama31_rope_in_place(torch::Tensor q,
+						 torch::Tensor k,
+						 unsigned int past_kv_len,
+						 float rope_scale,
+						 float rope_theta,
+						 float low_freq_factor,
+    					 float high_freq_factor, 
+						 float old_context_length);
+
 void rms_norm_forward(torch::Tensor input,
 					  torch::Tensor weight,
 					  torch::Tensor output,
@@ -38,15 +47,6 @@ void topk_filtering(torch::Tensor estimated_value,
 					torch::Tensor buf,
 					unsigned int page_budget);
 
-void estimate_attn_score(torch::Tensor q,
-						 torch::Tensor o,
-						 torch::Tensor metadata_data,
-						 torch::Tensor metadata_indices,
-						 torch::Tensor metadata_indptr,
-						 unsigned int metadata_last_page_len,
-						 unsigned int metadata_last_page_idx,
-						 unsigned int layout);
-
 void append_kv_cache_prefill(torch::Tensor k,
 							 torch::Tensor v,
 							 torch::Tensor kv_data,
@@ -54,11 +54,6 @@ void append_kv_cache_prefill(torch::Tensor k,
 							 torch::Tensor kv_indptr,
 							 unsigned int kv_last_page_len,
 							 unsigned int kv_last_page_idx,
-							 torch::Tensor metadata_data,
-							 torch::Tensor metadata_indices,
-							 torch::Tensor metadata_indptr,
-							 unsigned int metadata_last_page_len,
-							 unsigned int metadata_last_page_idx,
 							 unsigned int layout);
 
 void append_kv_cache_decode(torch::Tensor k,
@@ -68,11 +63,6 @@ void append_kv_cache_decode(torch::Tensor k,
 							torch::Tensor kv_indptr,
 							unsigned int kv_last_page_len,
 							unsigned int kv_last_page_idx,
-							torch::Tensor metadata_data,
-							torch::Tensor metadata_indices,
-							torch::Tensor metadata_indptr,
-							unsigned int metadata_last_page_len,
-							unsigned int metadata_last_page_idx,
 							unsigned int layout);
 
 torch::Tensor prefill_with_paged_kv_cache(torch::Tensor q,
@@ -81,9 +71,7 @@ torch::Tensor prefill_with_paged_kv_cache(torch::Tensor q,
 										  unsigned int kv_last_page_len,
 										  bool causal,
 										  unsigned int layout,
-										  bool allow_fp16_qk_reduction,
-										  float rope_scale,
-										  float rope_theta);
+										  bool allow_fp16_qk_reduction);
 
 class BatchDecodeWithPagedKVCachePyTorchWrapper {
 public:

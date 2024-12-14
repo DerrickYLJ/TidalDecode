@@ -93,6 +93,7 @@ BatchDecodeWithPagedKVCachePyTorchWrapper::Forward(torch::Tensor q,
 	int64_t head_dim = q.size(2);
 	int64_t num_kv_heads, page_size;
 	int64_t token_budget = paged_kv_indices.size(1);
+	int64_t max_seq_len = paged_kv_data.size(0);
 
 	if(kv_layout_ == QKVLayout::kHND) {
 		num_kv_heads = paged_kv_data.size(2);
@@ -117,6 +118,7 @@ BatchDecodeWithPagedKVCachePyTorchWrapper::Forward(torch::Tensor q,
 				head_dim,
 				batch_size,
 				token_budget,
+				max_seq_len,
 				paged_kv_last_page_len,
 				paged_kv_last_page_idx,
 				static_cast<c_type*>(paged_kv_data.data_ptr()),
@@ -134,7 +136,7 @@ BatchDecodeWithPagedKVCachePyTorchWrapper::Forward(torch::Tensor q,
 															static_cast<c_type*>(o.data_ptr()),
 															/*lse=*/nullptr,
 															num_qo_heads,
-															qk_product.numel() == 0 ? static_cast<c_type*>(qk_product.data_ptr()) : nullptr,
+															qk_product.numel() != 0 ? static_cast<c_type*>(qk_product.data_ptr()) : nullptr,
 															RotaryMode::kNone,
 															rope_scale,
 															rope_theta,

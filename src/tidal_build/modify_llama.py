@@ -71,6 +71,8 @@ def llama_tidal_attention_forward(
     else:
         cos, sin = position_embeddings
     query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin)
+    # query_states = torch.ones_like(query_states).to(query_states.device)
+    # key_states = torch.ones_like(key_states).to(key_states.device)  
 
     if past_key_value is not None:
         cache_kwargs = {"sin": sin, "cos": cos, "cache_position": cache_position}
@@ -105,6 +107,7 @@ def llama_tidal_attention_forward(
         attn_weights = torch.matmul(
             query_states, key_states.transpose(2, 3)
         ) / math.sqrt(self.head_dim)
+
         if attention_mask is not None:
             causal_mask = attention_mask[:, :, :, : key_states.shape[-2]]
             attn_weights = attn_weights + causal_mask
@@ -115,9 +118,14 @@ def llama_tidal_attention_forward(
         # decoding
         if self.layer_idx == sparse_layer_start or self.layer_idx == correction_layer:
             # extract top_k mask
-            _, top_k_indices = torch.topk(attn_weights, k=token_budget, dim=-1)
+            _, top_k_indices = torch.topk(attn_weights[:, :, :, :-1], k=token_budget-1, dim=-1)
+            # exit(0)
+            top_k_indices = torch.cat([top_k_indices, torch.tensor([kv_seq_len-1]*self.num_heads).to(top_k_indices.device).reshape(1,self.num_heads,1,1)], dim=-1)
             top_k_mask = torch.zeros_like(attn_weights).scatter_(-1, top_k_indices, 1.0)
             self.pos_dict = top_k_mask  # store top_k mask
+            # if self.layer_idx == 2:
+            #     print(self.layer_idx, attn_weights[0, 0, 0, :-1])
+            # print(self.layer_idx, top_k_indices[0, 0, 0, :])
         else:
             # apply top_k mask
             if self.pos_dict == None:
@@ -126,11 +134,18 @@ def llama_tidal_attention_forward(
             attn_weights = attn_weights.masked_fill(
                 self.pos_dict.to(attn_weights.device) == 0, min_value
             )
+            # print(self.layer_idx, attn_weights[0, 0, 0, :])
+            
 
         attn_weights = nn.functional.softmax(
             attn_weights, dim=-1, dtype=torch.float32
         ).to(query_states.dtype)
         attn_output = torch.matmul(attn_weights, value_states)
+        # if self.layer_idx != sparse_layer_start and self.layer_idx != correction_layer:
+        #     print(self.layer_idx, attn_weights[0, 0, 0, :].sum())
+        #     exit(0)
+        # if self.layer_idx == 2:
+        #     print(self.layer_idx, query_states[0, 0, 0, :20], key_states[0, 0, -1, :20])
 
         if attn_output.size() != (bsz, self.num_heads, q_len, self.head_dim):
             raise ValueError(
