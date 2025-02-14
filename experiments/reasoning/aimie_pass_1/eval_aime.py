@@ -99,45 +99,84 @@ def tidal_inference_single(
     model, tokenizer, prompt: str, max_tokens: int = 8192, stride: int = 256
 ) -> str:
     """
-    Perform Tidal inference with intermediate "cache correction":
-      (1) Generate 'stride' tokens in Tidal decode mode.
-      (2) Evict Tidal decode cache.
-      (3) Forward pass newly generated tokens to build a proper "full-attention" cache.
-      (4) Repeat until we generate a total of 'max_tokens' tokens.
+    Perform Tidal inference with manual token generation instead of using generate()
     """
     system_prompt_str = get_system_prompt(max_tokens)
     full_prompt_text = (
         f"USER: {system_prompt_str}\n" f"Problem:\n{prompt}\n\n" "ASSISTANT: "
     )
-    context_ids = tokenizer(full_prompt_text, return_tensors="pt")["input_ids"]
+    context_ids = tokenizer(full_prompt_text, return_tensors="pt")[
+        "input_ids"
+    ]  # [1, seq_len]
     rounds = (max_tokens // stride) + (1 if max_tokens % stride != 0 else 0)
     total_generated_ids = []
     total_tokens_generated = 0
+    past_key_values = None
 
     for r in range(rounds):
         tokens_this_round = min(stride, max_tokens - total_tokens_generated)
         if tokens_this_round <= 0:
             break
-        outputs = model.generate(
-            input_ids=context_ids,
-            max_new_tokens=tokens_this_round,
-            pad_token_id=tokenizer.eos_token_id,
-            eos_token_id=tokenizer.eos_token_id,
-            do_sample=False,
-        )
-        new_ids = outputs[:, context_ids.shape[-1] :]
-        context_ids = torch.cat([context_ids, new_ids], dim=-1)
-        with torch.no_grad():
-            _ = model(
-                input_ids=context_ids,
-            )
-        total_tokens_generated += tokens_this_round
-        total_generated_ids.append(new_ids)
+
+        # Manual generation loop for this round
+        new_tokens = []
+        curr_input_ids = context_ids if past_key_values is None else context_ids[:, -1:]
+        curr_past_key_values = past_key_values
+
+        for _ in range(tokens_this_round):
+            with torch.no_grad():
+                outputs = model(
+                    input_ids=curr_input_ids,
+                    past_key_values=curr_past_key_values,
+                    use_cache=True,
+                    return_dict=True,
+                )
+
+            # Get next token prediction
+            next_token_logits = outputs.logits[:, -1, :]
+            next_token = torch.argmax(next_token_logits, dim=-1, keepdim=True)  # [1, 1]
+
+            # Update for next iteration
+            curr_input_ids = next_token
+            curr_past_key_values = outputs.past_key_values
+            new_tokens.append(next_token[0])  # Remove batch dimension before appending
+
+            # Check for EOS token
+            if next_token.item() == tokenizer.eos_token_id:
+                break
+
+        # Combine tokens generated in this round
+        if new_tokens:
+            new_ids = torch.stack(new_tokens, dim=-1)  # [num_new_tokens]
+            context_ids = torch.cat(
+                [context_ids, new_ids], dim=-1
+            )  # [1, total_seq_len]
+
+            # Cache correction: Forward pass to build proper full-attention cache
+            with torch.no_grad():
+                outputs = model(
+                    input_ids=context_ids,
+                    use_cache=True,
+                    output_hidden_states=False,
+                    output_attentions=False,
+                    return_dict=True,
+                )
+                # Update past_key_values with the corrected cache
+                past_key_values = outputs.past_key_values
+
+            total_tokens_generated += new_ids.shape[-1]
+            total_generated_ids.append(new_ids)
+
+            # Log progress
+            logger.info(f"Round {r}: Generated {new_ids.shape[-1]} tokens")
+            logger.info(f"Current context length: {context_ids.shape[-1]}")
+
         if total_tokens_generated >= max_tokens:
             break
+
     if total_generated_ids:
-        all_new_ids = torch.cat(total_generated_ids, dim=-1)
-        all_new_ids = all_new_ids[0]
+        all_new_ids = torch.cat(total_generated_ids, dim=-1)  # [1, total_new_tokens]
+        all_new_ids = all_new_ids[0]  # [total_new_tokens]
         out_text = tokenizer.decode(all_new_ids, skip_special_tokens=True)
     else:
         out_text = ""
@@ -269,7 +308,7 @@ def main(args):
     os.makedirs("results", exist_ok=True)
     n_attempts = args.n
     top_k = args.top_k if args.top_k else ""
-    results_file = f"aime_{args.attn_type}_{top_k}_{args.model_name.replace('/', '_')}_pass_at_{n_attempts}.json"
+    results_file = f"aime_cc_{args.attn_type}_{top_k}_{args.model_name.replace('/', '_')}_pass_at_{n_attempts}.json"
 
     # Load the dataset (30 problems from 2024)
     dataset = load_2024_dataset()
