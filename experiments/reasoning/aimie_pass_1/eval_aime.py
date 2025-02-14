@@ -8,8 +8,8 @@ from typing import List, Dict, Tuple, Optional, Union
 from datetime import datetime
 from datasets import load_dataset
 from tqdm import tqdm
+import torch
 
-# Tidal-specific imports (assuming you have a "load" utility available)
 from src.utils import load
 
 logging.basicConfig(level=logging.INFO)
@@ -85,7 +85,6 @@ def extract_answer(response: str) -> Optional[int]:
             except (ValueError, IndexError):
                 continue
 
-    # Fallback: grab any digits found, return the last one
     numbers = re.findall(r"(\d+)", response)
     if numbers:
         try:
@@ -97,39 +96,56 @@ def extract_answer(response: str) -> Optional[int]:
 
 
 def tidal_inference_single(
-    model, tokenizer, prompt: str, max_tokens: int = 8192
+    model, tokenizer, prompt: str, max_tokens: int = 8192, stride: int = 256
 ) -> str:
     """
-    Perform a single pass@1 Tidal inference on the given prompt.
-    Returns the generated response text, and prints the generation length.
+    Perform Tidal inference with intermediate "cache correction":
+      (1) Generate 'stride' tokens in Tidal decode mode.
+      (2) Evict Tidal decode cache.
+      (3) Forward pass newly generated tokens to build a proper "full-attention" cache.
+      (4) Repeat until we generate a total of 'max_tokens' tokens.
     """
-    # Build the system prompt with user-specified max_len
     system_prompt_str = get_system_prompt(max_tokens)
-
-    # Concatenate system prompt + user problem statement
-    full_prompt = f"USER: {system_prompt_str}\n" f"Problem:\n{prompt}\n\n" "ASSISTANT: "
-
-    # Tokenize
-    input_tensor = tokenizer(
-        full_prompt, return_tensors="pt", return_attention_mask=False
+    full_prompt_text = (
+        f"USER: {system_prompt_str}\n" f"Problem:\n{prompt}\n\n" "ASSISTANT: "
     )
+    context_ids = tokenizer(full_prompt_text, return_tensors="pt")["input_ids"]
+    rounds = (max_tokens // stride) + (1 if max_tokens % stride != 0 else 0)
+    total_generated_ids = []
+    total_tokens_generated = 0
 
-    # Generate
-    outputs = model.generate(
-        **input_tensor,
-        max_new_tokens=max_tokens,
-        pad_token_id=tokenizer.eos_token_id,
-        eos_token_id=tokenizer.eos_token_id,
-        do_sample=False,  # Greedy decode for pass@1
+    for r in range(rounds):
+        tokens_this_round = min(stride, max_tokens - total_tokens_generated)
+        if tokens_this_round <= 0:
+            break
+        outputs = model.generate(
+            input_ids=context_ids,
+            max_new_tokens=tokens_this_round,
+            pad_token_id=tokenizer.eos_token_id,
+            eos_token_id=tokenizer.eos_token_id,
+            do_sample=False,
+        )
+        new_ids = outputs[:, context_ids.shape[-1] :]
+        context_ids = torch.cat([context_ids, new_ids], dim=-1)
+        with torch.no_grad():
+            _ = model(
+                input_ids=context_ids,
+            )
+        total_tokens_generated += tokens_this_round
+        total_generated_ids.append(new_ids)
+        if total_tokens_generated >= max_tokens:
+            break
+    if total_generated_ids:
+        all_new_ids = torch.cat(total_generated_ids, dim=-1)
+        all_new_ids = all_new_ids[0]
+        out_text = tokenizer.decode(all_new_ids, skip_special_tokens=True)
+    else:
+        out_text = ""
+
+    gen_length = len(out_text.split())
+    logger.info(
+        f"Generated {all_new_ids.shape[0]} tokens for this problem (approx. {gen_length} words)."
     )
-
-    # Extract newly generated tokens (excluding the prompt)
-    new_tokens = outputs[0, input_tensor["input_ids"].shape[-1] :]
-    out_text = tokenizer.decode(new_tokens, skip_special_tokens=True)
-
-    # Print the generation length for this question
-    gen_length = len(new_tokens)
-    logger.info(f"Generated {gen_length} tokens for this problem.")
 
     return out_text.strip()
 
@@ -139,13 +155,8 @@ def get_llm_response(model, tokenizer, problem: str, max_tokens: int = 8192) -> 
     Wrap the single Tidal inference to match the original function’s style.
     Returns the single response string for pass@1.
     """
-    try:
-        # Perform a single Tidal generation for the problem
-        response_text = tidal_inference_single(model, tokenizer, problem, max_tokens)
-        return response_text
-    except Exception as e:
-        logger.error(f"Error in Tidal inference: {e}")
-        return ""
+    response_text = tidal_inference_single(model, tokenizer, problem, max_tokens)
+    return response_text
 
 
 def make_n_attempts(
