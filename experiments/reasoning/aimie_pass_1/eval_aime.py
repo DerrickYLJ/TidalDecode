@@ -117,8 +117,6 @@ def tidal_inference_single(
         tokens_this_round = min(stride, max_tokens - total_tokens_generated)
         if tokens_this_round <= 0:
             break
-
-        # Manual generation loop for this round
         new_tokens = []
         curr_input_ids = context_ids if past_key_values is None else context_ids[:, -1:]
         curr_past_key_values = past_key_values
@@ -132,44 +130,57 @@ def tidal_inference_single(
                     return_dict=True,
                 )
 
-            # Get next token prediction
             next_token_logits = outputs.logits[:, -1, :]
             next_token = torch.argmax(next_token_logits, dim=-1, keepdim=True)  # [1, 1]
 
-            # Update for next iteration
             curr_input_ids = next_token
             curr_past_key_values = outputs.past_key_values
-            new_tokens.append(next_token[0])  # Remove batch dimension before appending
+            new_tokens.append(next_token[0])
 
             # Check for EOS token
             if next_token.item() == tokenizer.eos_token_id:
                 break
 
-        # Combine tokens generated in this round
         if new_tokens:
             new_ids = torch.stack(new_tokens, dim=-1)  # [num_new_tokens]
             context_ids = torch.cat(
                 [context_ids, new_ids], dim=-1
             )  # [1, total_seq_len]
 
-            # Cache correction: Forward pass to build proper full-attention cache
+            # cache correction
             with torch.no_grad():
+                if curr_past_key_values is not None:
+                    past_key_values = []
+                    for layer_idx in range(len(curr_past_key_values)):
+                        layer_past = curr_past_key_values[layer_idx]
+                        # Only keep the KV pairs for the original context
+                        curr_key = layer_past[0]
+                        curr_value = layer_past[1]
+                        past_key_values.append(
+                            (
+                                curr_key[
+                                    :, :, : (context_ids[-1] - new_ids.shape[-1]), :
+                                ],
+                                curr_value[
+                                    :, :, : (context_ids[-1] - new_ids.shape[-1]), :
+                                ],
+                            )
+                        )
+                    curr_past_key_values = past_key_values
+
                 outputs = model(
-                    input_ids=context_ids,
+                    input_ids=new_ids,
                     use_cache=True,
                     output_hidden_states=False,
                     output_attentions=False,
+                    past_key_values=curr_past_key_values,
                     return_dict=True,
                 )
-                # Update past_key_values with the corrected cache
+                # update with corrected kv cache
                 past_key_values = outputs.past_key_values
 
             total_tokens_generated += new_ids.shape[-1]
             total_generated_ids.append(new_ids)
-
-            # Log progress
-            logger.info(f"Round {r}: Generated {new_ids.shape[-1]} tokens")
-            logger.info(f"Current context length: {context_ids.shape[-1]}")
 
         if total_tokens_generated >= max_tokens:
             break
@@ -315,6 +326,20 @@ def main(args):
 
     existing_results = load_existing_results(results_file)
     processed_indexes = {r["index"] for r in existing_results}
+    needed_indexes = {
+        60,
+        67,
+        68,
+        69,
+        71,
+        72,
+        75,
+        79,
+        83,
+        84,
+        86,
+    }
+    #  {60, 65, 66, 67, 68, 70, 71, 74, 78, 82, 85, }
 
     # Evaluate each problem
     for item in tqdm(dataset, desc="Evaluating problems"):
