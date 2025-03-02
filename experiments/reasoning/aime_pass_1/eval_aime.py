@@ -8,7 +8,7 @@ from typing import List, Dict, Tuple, Optional, Union
 from datetime import datetime
 from datasets import load_dataset
 from tqdm import tqdm
-import torch
+
 from src.utils import load
 
 logging.basicConfig(level=logging.INFO)
@@ -77,7 +77,6 @@ def extract_answer(response: str) -> Optional[int]:
     for pattern in patterns:
         matches = list(re.finditer(pattern, response, re.IGNORECASE))
         if matches:
-            # Take the last match
             last_match = matches[-1]
             try:
                 return int(last_match.group(1))
@@ -99,124 +98,43 @@ def tidal_inference_single(
     tokenizer,
     prompt: str,
     max_tokens: int = 8192,
-    stride: int = 128,
     temperature: float = 0.0,
 ) -> str:
     """
-    Perform Tidal inference with manual token generation and token-by-token cache correction
-    for sparse attention models.
+    Perform a single pass@1 Tidal inference on the given prompt.
+    Returns the generated response text, and logs the generation length.
+    
+    - If temperature > 0, we do sampling.
+    - If temperature == 0, we do greedy decoding.
     """
     system_prompt_str = get_system_prompt(max_tokens)
-    full_prompt_text = (
-        f"USER: {system_prompt_str}\n" f"Problem:\n{prompt}\n\n" "ASSISTANT: "
+
+    full_prompt = (
+        f"USER: {system_prompt_str}\n"
+        f"Problem:\n{prompt}\n\n"
+        "ASSISTANT: "
     )
-    context_ids = tokenizer(full_prompt_text, return_tensors="pt")[
-        "input_ids"
-    ]  # [1, seq_len]
-    device = context_ids.device
-    rounds = (max_tokens // stride) + (1 if max_tokens % stride != 0 else 0)
-    total_generated_ids = []
-    total_tokens_generated = 0
-    past_key_values = None
-    do_sample = temperature > 0.0
 
-    for r in range(rounds):
-        tokens_this_round = min(stride, max_tokens - total_tokens_generated)
-        if tokens_this_round <= 0:
-            break
-
-        # Manual generation loop
-        new_tokens = []
-        curr_input_ids = context_ids if past_key_values is None else context_ids[:, -1:]
-        curr_past_key_values = past_key_values
-
-        for _ in range(tokens_this_round):
-            with torch.no_grad():
-                outputs = model(
-                    input_ids=curr_input_ids,
-                    past_key_values=curr_past_key_values,
-                    use_cache=True,
-                    return_dict=True,
-                )
-
-            next_token_logits = outputs.logits[:, -1, :]
-            if do_sample:
-                # Temperature Applied
-                next_token_logits = next_token_logits / temperature
-                probs = torch.nn.functional.softmax(next_token_logits, dim=-1)
-                next_token = torch.multinomial(probs, num_samples=1)  # [1, 1]
-            else:
-                # Greedy decoding
-                next_token = torch.argmax(next_token_logits, dim=-1, keepdim=True)
-
-            curr_input_ids = next_token
-            curr_past_key_values = outputs.past_key_values
-            new_tokens.append(next_token.item())
-
-            if next_token.item() == tokenizer.eos_token_id:
-                break
-
-        new_ids_tensor = torch.tensor(
-            [new_tokens], device=device
-        )  # [1, num_new_tokens]
-
-        # Cache correction
-        if len(new_tokens) > 0:
-            full_sequence = torch.cat([context_ids], dim=1)
-
-            with torch.no_grad():
-                full_outputs = model(
-                    input_ids=full_sequence,
-                    past_key_values=None,  # Force full attention
-                    use_cache=True,
-                    return_dict=True,
-                )
-                corrected_kv = full_outputs.past_key_values
-
-            with torch.no_grad():
-                token_outputs = model(
-                    input_ids=new_ids_tensor[:, :-1],
-                    past_key_values=corrected_kv,
-                    use_cache=True,
-                    return_dict=True,
-                )
-
-                next_token_logits = token_outputs.logits[:, -1, :]
-                next_token = torch.argmax(
-                    next_token_logits, dim=-1, keepdim=True
-                )  # [1, 1]
-
-                curr_input_ids = next_token
-                past_key_values = token_outputs.past_key_values
-                new_tokens[-1] = next_token.item()
-
-        new_ids_tensor = torch.tensor([new_tokens], device=device)
-        context_ids = torch.cat(
-            [context_ids, new_ids_tensor], dim=1
-        )  # [1, total_seq_len]
-
-        total_tokens_generated += len(new_tokens)
-        total_generated_ids.append(new_ids_tensor)
-
-        # token_str = tokenizer.decode(new_tokens, skip_special_tokens=True)
-        # print(token_str)
-
-        if total_tokens_generated >= max_tokens:
-            break
-
-    if total_generated_ids:
-        all_tokens = []
-        for ids_tensor in total_generated_ids:
-            all_tokens.extend(ids_tensor[0].tolist())
-
-        out_text = tokenizer.decode(all_tokens, skip_special_tokens=True)
-    else:
-        out_text = ""
-
-    gen_length = len(out_text.split())
-    logger.info(
-        f"Generated {total_tokens_generated} tokens for this problem (approx. {gen_length} words)."
+    input_tensor = tokenizer(
+        full_prompt, return_tensors="pt", return_attention_mask=False
     )
+
+    do_sample = (temperature > 0.0)
+
+    outputs = model.generate(
+        **input_tensor,
+        max_new_tokens=max_tokens,
+        pad_token_id=tokenizer.eos_token_id,
+        eos_token_id=tokenizer.eos_token_id,
+        do_sample=do_sample,
+        temperature=temperature if do_sample else 1.0, 
+    )
+
+    new_tokens = outputs[0, input_tensor["input_ids"].shape[-1] :]
+    out_text = tokenizer.decode(new_tokens, skip_special_tokens=True)
+
+    gen_length = len(new_tokens)
+    logger.info(f"Generated {gen_length} tokens for this problem. (temp={temperature}, do_sample={do_sample})")
 
     return out_text.strip()
 
@@ -233,7 +151,6 @@ def get_llm_response(
     Returns the single response string for pass@1, using the specified temperature.
     """
     try:
-        # Perform a single Tidal generation for the problem
         response_text = tidal_inference_single(
             model,
             tokenizer,
@@ -317,7 +234,6 @@ def analyze_results(results: List[Dict], n: int):
     print(f"Correct answers: {correct}")
     print(f"Accuracy: {accuracy:.2%}")
 
-    # If any were correct, see which attempt they got correct
     successful_attempts = [
         r["first_correct_attempt"] for r in results if r["is_correct"]
     ]
@@ -362,7 +278,7 @@ def main(args):
     os.makedirs("results", exist_ok=True)
     n_attempts = args.n
     top_k = args.top_k if args.top_k else ""
-    results_file = f"aime_cc_{args.attn_type}_{top_k}_{args.model_name.replace('/', '_')}_{args.temperature}.json"
+    results_file = f"aime_{args.attn_type}_{top_k}_{args.model_name.replace('/', '_')}_{args.temperature}.json"
 
     # Load the dataset (30 problems from 2024)
     dataset = load_2024_dataset()
@@ -370,11 +286,9 @@ def main(args):
     existing_results = load_existing_results(results_file)
     processed_indexes = {r["index"] for r in existing_results}
 
-    # Evaluate each problem
     for item in tqdm(dataset, desc="Evaluating problems"):
         problem_id = int(item["id"])
         if problem_id in processed_indexes:
-            # Already processed
             continue
 
         problem_text = item["problem"]

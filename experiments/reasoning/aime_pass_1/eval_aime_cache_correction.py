@@ -93,14 +93,8 @@ def extract_answer(response: str) -> Optional[int]:
 
     return None
 
-
 def tidal_inference_single(
-    model,
-    tokenizer,
-    prompt: str,
-    max_tokens: int = 8192,
-    stride: int = 128,
-    temperature: float = 0.0,
+    model, tokenizer, prompt: str, max_tokens: int = 8192, stride: int = 128, temperature: float=0.0
 ) -> str:
     """
     Perform Tidal inference with manual token generation and token-by-token cache correction
@@ -118,10 +112,10 @@ def tidal_inference_single(
     total_generated_ids = []
     total_tokens_generated = 0
     past_key_values = None
-    do_sample = temperature > 0.0
+    do_sample = (temperature > 0.0)
 
     for r in range(rounds):
-        tokens_this_round = min(stride, max_tokens - total_tokens_generated)
+        tokens_this_round = min(stride, max_tokens - total_tokens_generated) 
         if tokens_this_round <= 0:
             break
 
@@ -151,19 +145,17 @@ def tidal_inference_single(
 
             curr_input_ids = next_token
             curr_past_key_values = outputs.past_key_values
-            new_tokens.append(next_token.item())
+            new_tokens.append(next_token.item())  
 
             if next_token.item() == tokenizer.eos_token_id:
                 break
-
-        new_ids_tensor = torch.tensor(
-            [new_tokens], device=device
-        )  # [1, num_new_tokens]
-
+        
+        new_ids_tensor = torch.tensor([new_tokens], device=device)  # [1, num_new_tokens]
+        
         # Cache correction
         if len(new_tokens) > 0:
             full_sequence = torch.cat([context_ids], dim=1)
-
+            
             with torch.no_grad():
                 full_outputs = model(
                     input_ids=full_sequence,
@@ -172,7 +164,7 @@ def tidal_inference_single(
                     return_dict=True,
                 )
                 corrected_kv = full_outputs.past_key_values
-
+            
             with torch.no_grad():
                 token_outputs = model(
                     input_ids=new_ids_tensor[:, :-1],
@@ -180,27 +172,24 @@ def tidal_inference_single(
                     use_cache=True,
                     return_dict=True,
                 )
-
+                
+    
                 next_token_logits = token_outputs.logits[:, -1, :]
-                next_token = torch.argmax(
-                    next_token_logits, dim=-1, keepdim=True
-                )  # [1, 1]
+                next_token = torch.argmax(next_token_logits, dim=-1, keepdim=True)  # [1, 1]
 
                 curr_input_ids = next_token
                 past_key_values = token_outputs.past_key_values
                 new_tokens[-1] = next_token.item()
-
+        
         new_ids_tensor = torch.tensor([new_tokens], device=device)
-        context_ids = torch.cat(
-            [context_ids, new_ids_tensor], dim=1
-        )  # [1, total_seq_len]
+        context_ids = torch.cat([context_ids, new_ids_tensor], dim=1)  # [1, total_seq_len]
 
         total_tokens_generated += len(new_tokens)
         total_generated_ids.append(new_ids_tensor)
 
         # token_str = tokenizer.decode(new_tokens, skip_special_tokens=True)
         # print(token_str)
-
+        
         if total_tokens_generated >= max_tokens:
             break
 
@@ -208,7 +197,7 @@ def tidal_inference_single(
         all_tokens = []
         for ids_tensor in total_generated_ids:
             all_tokens.extend(ids_tensor[0].tolist())
-
+        
         out_text = tokenizer.decode(all_tokens, skip_special_tokens=True)
     else:
         out_text = ""
@@ -219,7 +208,6 @@ def tidal_inference_single(
     )
 
     return out_text.strip()
-
 
 def get_llm_response(
     model,
