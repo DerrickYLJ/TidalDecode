@@ -36,6 +36,7 @@ def parse_args():
 
 def load(model_name_or_path, attn_type, **kwargs):
     print(f"Loading model from {model_name_or_path} ...")
+    print(f"    attn_type: {attn_type}")
     
     if attn_type=="tidal":
         

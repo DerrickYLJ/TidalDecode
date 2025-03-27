@@ -150,6 +150,14 @@ def get_llm_response(
     Wrap the single Tidal inference to match the original function’s style.
     Returns the single response string for pass@1, using the specified temperature.
     """
+    response_text = tidal_inference_single(
+            model,
+            tokenizer,
+            problem,
+            max_tokens=max_tokens,
+            temperature=temperature,
+        )
+    # return response_text
     try:
         response_text = tidal_inference_single(
             model,
@@ -273,12 +281,14 @@ def main(args):
         top_k=getattr(args, "top_k", 128),
         sparse_layer_start=getattr(args, "sparse_layer_start", 2),
         correction_layer=getattr(args, "correction_layer", 13),
+        attention_sink=getattr(args, "attention_sink", 0),
+        most_recent_scale_factor=getattr(args, "most_recent_scale_factor", 1)
     )
 
     os.makedirs("results", exist_ok=True)
     n_attempts = args.n
     top_k = args.top_k if args.top_k else ""
-    results_file = f"aime_{args.attn_type}_{top_k}_{args.model_name.replace('/', '_')}_{args.temperature}.json"
+    results_file = f"aime_{args.attn_type}_{top_k}_{args.model_name.replace('/', '_')}_{args.temperature}_{args.attention_sink}_{args.most_recent_scale_factor}.json"
 
     # Load the dataset (30 problems from 2024)
     dataset = load_2024_dataset()
@@ -360,6 +370,20 @@ if __name__ == "__main__":
         type=float,
         default=0.0,
         help="Sampling temperature (0.0 = greedy, >0 = sampling).",
+    )
+    
+    parser.add_argument(
+        "--attention_sink",
+        type=int,
+        default=0,
+        help="The number of attention sinks we want to keep for streaming LLM",
+    )
+    
+    parser.add_argument(
+        "--most_recent_scale_factor",
+        type=int,
+        default=1,
+        help="The factor to split the token budget by when doing streamingLLM. The number of tokens that will be used for top-k will be token_budget//scale_factor and the remaining will be for the most recent tokens",
     )
 
     args = parser.parse_args()
