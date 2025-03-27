@@ -16,18 +16,18 @@ from transformers.cache_utils import Cache, DynamicCache, StaticCache
 from transformers.modeling_flash_attention_utils import _flash_attention_forward
 
 def llama_tidal_attention_forward(
-    self, # @artij: referring to the attention layer instance
-    hidden_states: torch.Tensor, # @artij: input embedding/activations [batch_size, seq_len, hidden_dim]
-    attention_mask: Optional[torch.Tensor] = None, # @artij: masks padding/invisible tokens,
+    self,
+    hidden_states: torch.Tensor, 
+    attention_mask: Optional[torch.Tensor] = None, 
     position_ids: Optional[torch.LongTensor] = None,
-    past_key_value: Optional[Cache] = None, # @artij: cached K/V from previous forward passes
-    output_attentions: bool = False, # @artij: whether attention weights/scores should be returned as part of the output
-    use_cache: bool = False, # @artij: whether to use/store KV cache
-    cache_position: Optional[torch.LongTensor] = None, # @artij: position indices for cache
-    position_embeddings: Optional[Tuple[torch.Tensor, torch.Tensor]] = None, # @artij: precomputed position embeddings
-    top_k: int = None, # @artij: number of top attention scores to keep
-    sparse_layer_start=2, # @artij: layer to start sparse attention
-    correction_layer=9, # @artij: layer for attention correction
+    past_key_value: Optional[Cache] = None, 
+    output_attentions: bool = False, 
+    use_cache: bool = False,
+    cache_position: Optional[torch.LongTensor] = None, 
+    position_embeddings: Optional[Tuple[torch.Tensor, torch.Tensor]] = None, 
+    top_k: int = None, 
+    sparse_layer_start=2, 
+    correction_layer=9, 
     attention_sink=0, # @artij: number of attention sink tokens to keep
     most_recent_scale_factor = 1, # @artij: how to split the KV cache -> token_budget/most_recent_scale_factor amount of tokens to top-k, rest for window/sink tokens --> if 1 then all for top-k
     **kwargs,
