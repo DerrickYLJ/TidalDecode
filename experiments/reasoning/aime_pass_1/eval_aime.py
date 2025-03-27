@@ -127,6 +127,7 @@ def tidal_inference_single(
         pad_token_id=tokenizer.eos_token_id,
         eos_token_id=tokenizer.eos_token_id,
         do_sample=do_sample,
+        top_p=0.95,
         temperature=temperature if do_sample else 1.0, 
     )
 

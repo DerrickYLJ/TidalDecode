@@ -1,4 +1,20 @@
 #!/bin/bash
+#
+# Just a typical Slurm header (adjust for your HPC’s requirements):
+#SBATCH --job-name=tidal_llama
+#SBATCH --output=tidal_llama_%j.out
+#SBATCH --error=tidal_llama_%j.err
+#SBATCH --gres=gpu:4           # request 1 GPU (adjust as needed)
+#SBATCH --cpus-per-task=4      # number of CPU cores
+#SBATCH --mem=64G              # total memory
+#SBATCH --time=1:00:00         # time in hh:mm:ss
+
+# (Optional) Load any modules you need for Python/CUDA
+module load cuda-12.3
+
+# (Optional) Activate your conda env if needed
+source activate tidal
+
 mkdir -p data
 wget https://github.com/liyucheng09/LatestEval/releases/download/pg19/pg19_mini.jsonl -O ./data/pg19_mini.jsonl
 # Create results directory if not exists

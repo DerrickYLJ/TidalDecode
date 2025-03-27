@@ -112,20 +112,41 @@ def llama_tidal_attention_forward(
         last_dim_size = attn_weights.size(-1)
         token_budget = min(last_dim_size, top_k)
 
-        # decoding
         if self.layer_idx == sparse_layer_start or self.layer_idx == correction_layer:
-            # extract top_k mask
-            _, top_k_indices = torch.topk(attn_weights, k=token_budget, dim=-1)
+            if token_budget == last_dim_size:
+                _, top_k_indices = torch.topk(attn_weights, k=token_budget, dim=-1) # directly select all tokens
+            else:
+                _, top_k_indices = torch.topk(attn_weights, k=token_budget, dim=-1)
+
+                ### Union capped by token_budget ###
+                union_tensor = top_k_indices.transpose(1,3).contiguous().view(bsz, -1)
+                union_list = list(dict.fromkeys(union_tensor[0].tolist()))
+                if len(union_list) > token_budget:
+                    union_list = union_list[:token_budget]
+                # (k,) -> (1, 32, 1, k) and replace top_k_indices
+                top_k_indices = torch.tensor(union_list, dtype=top_k_indices.dtype, device=top_k_indices.device) 
+                top_k_indices = top_k_indices.unsqueeze(0).unsqueeze(1).unsqueeze(2)
+                top_k_indices = top_k_indices.expand(bsz, self.num_heads, q_len, -1)
+                ### Union capped by token_budget ###
+                
+            
             top_k_mask = torch.zeros_like(attn_weights).scatter_(-1, top_k_indices, 1.0)
             self.pos_dict = top_k_mask  # store top_k mask
         else:
             # apply top_k mask
             if self.pos_dict == None:
                 raise ValueError("pos dict should be set up in sparse attn layers")
+            # local_opt_head = optimal_head_mapping[self.layer_idx]
+            # TODO: Extract the local_opt_head-th row and repeat it for head_num times to form local_mask
+            # optimal_mask = self.pos_dict[:, local_opt_head:local_opt_head+1, :, :]  # Shape: (bs, 1, q_len, kv_seq_len)
+            # local_mask = optimal_mask.expand(-1, self.num_heads, -1, -1)
             min_value = torch.finfo(attn_weights.dtype).min
             attn_weights = attn_weights.masked_fill(
                 self.pos_dict.to(attn_weights.device) == 0, min_value
             )
+            # attn_weights = attn_weights.masked_fill(
+            #     self.pos_dict.to(attn_weights.device) == 0, min_value
+            # )
 
         attn_weights = nn.functional.softmax(
             attn_weights, dim=-1, dtype=torch.float32

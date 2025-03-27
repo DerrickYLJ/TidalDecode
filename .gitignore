@@ -138,3 +138,6 @@ results/
 experiments/LongBench/pred/
 experiments/LongBench/pred_e/
 experiments/LongBench/longbench_logs/
+
+*.json
+*.err
