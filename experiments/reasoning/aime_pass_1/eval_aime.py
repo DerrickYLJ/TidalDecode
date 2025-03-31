@@ -282,7 +282,8 @@ def main(args):
         sparse_layer_start=getattr(args, "sparse_layer_start", 2),
         correction_layer=getattr(args, "correction_layer", 13),
         attention_sink=getattr(args, "attention_sink", 0),
-        most_recent_scale_factor=getattr(args, "most_recent_scale_factor", 1)
+        most_recent_scale_factor=getattr(args, "most_recent_scale_factor", 1),
+        
     )
 
     os.makedirs("results", exist_ok=True)
@@ -381,7 +382,7 @@ if __name__ == "__main__":
     
     parser.add_argument(
         "--most_recent_scale_factor",
-        type=int,
+        type=float,
         default=1,
         help="The factor to split the token budget by when doing streamingLLM. The number of tokens that will be used for top-k will be token_budget//scale_factor and the remaining will be for the most recent tokens",
     )

@@ -116,7 +116,8 @@ def llama_tidal_attention_forward(
             # @artij: keep attention sink, (token_budget // most_recent_scale_factor) for top-k, token_budget - (token_budget // most_recent_scale_factor) for the window attention/sink tokens
             # @artij: priority is to keep the most recent tokens over top-k
             
-            middle_budget = token_budget // most_recent_scale_factor # top-k
+            middle_budget = int(token_budget // most_recent_scale_factor) # top-k
+            #print(f" heo: {middle_budget}")
             most_recent_amount = token_budget - middle_budget # window atttention
             if most_recent_amount  < attention_sink:
                 attention_sink = 0
@@ -124,15 +125,8 @@ def llama_tidal_attention_forward(
                 most_recent_amount -= attention_sink
                 
             assert (middle_budget + attention_sink + most_recent_amount == token_budget)
-
-
-            # most_recent_amount = max(0, (token_budget // most_recent_scale_factor) - attention_sink)
-            # if most_recent_amount == 0: # no split, all tokens except attention sinks are for top-k
-            #     # @artij: TODO: always having attention sinks even if there is no keeping recent tokens --> or should it just be 0 (just top-k from everything)?
-            #     middle_budget = token_budget - attention_sink
-            # else: # split
-            #     middle_budget = token_budget - (most_recent_amount + attention_sink)
-            #print(f"top_k middle budget: {middle_budget}, attention_sinks: {attention_sink}, most_recent_amount: {most_recent_amount}")
+            
+            # print(f"topk: {middle_budget}, most_recent: {most_recent_amount}")
 
             # get sink token indices 
             sink_indices = torch.arange(attention_sink, device = attn_weights.device)
