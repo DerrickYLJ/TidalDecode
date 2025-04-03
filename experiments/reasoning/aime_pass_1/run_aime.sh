@@ -9,11 +9,11 @@ DATA_ROOT="data/"
 ATTENTION_SINK=4
 MOST_RECENT_SCALE=2
 
-for TEMPERATURE in 0.1 #0.2
+for TEMPERATURE in 0.6 
 do
     for CORRECTION_LAYER in 13
     do
-        for TOP_K in 2048 4096
+        for TOP_K in 512
         do 
             echo "Running with --correction_layer ${CORRECTION_LAYER}, --sparse_layer_start ${SPARSE_START_LAYER}, --top_k ${TOP_K}, --temperature ${TEMPERATURE}, --attention_sink ${ATTENTION_SINK} --most_recent_scale ${MOST_RECENT_SCALE}"
 
@@ -27,6 +27,7 @@ do
                 --correction_layer "${CORRECTION_LAYER}" \
                 --sparse_layer_start "${SPARSE_START_LAYER}" \
                 --attention_sink "${ATTENTION_SINK}" \
+                --n 8 \
                 --most_recent_scale_factor "${MOST_RECENT_SCALE}" \
                 > "${RESULT_FILE}" 2>&1
         done
