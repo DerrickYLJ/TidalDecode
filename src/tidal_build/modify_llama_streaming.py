@@ -138,6 +138,18 @@ def llama_tidal_attention_forward(
             middle_scores= attn_weights[..., attention_sink:recent_start]
             _, middle_indices = torch.topk(middle_scores, k = middle_budget, dim = -1)
             middle_indices = middle_indices + attention_sink
+
+            ## Union capped by token_budget ###
+            union_tensor = middle_indices.transpose(1,3).contiguous().view(bsz, -1)
+            union_list = list(dict.fromkeys(union_tensor[0].tolist()))
+            if len(union_list) > middle_budget:
+                union_list = union_list[:middle_budget]
+            # (k,) -> (1, 32, 1, k) and replace top_k_indices
+            middle_indices = torch.tensor(union_list, dtype=middle_indices.dtype, device=middle_indices.device) 
+            middle_indices = middle_indices.unsqueeze(0).unsqueeze(1).unsqueeze(2)
+            middle_indices = middle_indices.expand(bsz, self.num_heads, q_len, -1)
+            ## Union capped by token_budget ###
+
             
             # get most recent tokens
             recent_scores = attn_weights[..., recent_start:]
