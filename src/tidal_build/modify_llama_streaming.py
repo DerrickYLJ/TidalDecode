@@ -116,7 +116,7 @@ def llama_tidal_attention_forward(
             # @artij: keep attention sink, (token_budget // most_recent_scale_factor) for top-k, token_budget - (token_budget // most_recent_scale_factor) for the window attention/sink tokens
             # @artij: priority is to keep the most recent tokens over top-k
             
-            middle_budget = int(token_budget // most_recent_scale_factor) # top-k
+            middle_budget = int(token_budget * most_recent_scale_factor) # top-k
             #print(f" heo: {middle_budget}")
             most_recent_amount = token_budget - middle_budget # window atttention
             if most_recent_amount  < attention_sink:
